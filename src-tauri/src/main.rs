@@ -550,7 +550,7 @@ async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Status,
 
 // ---------- Real blur on Windows ----------
 // Windows has no usable blur-behind for transparent windows (its "blur" effect renders black on
-// Windows 11 24H2+, and acrylic is an opaque grey). So the widget excludes itself from screen
+// Windows 11 24H2+, and acrylic is an opaque grey). So the widget briefly excludes itself from screen
 // capture, grabs a tiny downscaled copy of the screen behind it, and the page blurs that
 // inside each glass tile. Frames never leave the process.
 
@@ -584,29 +584,25 @@ mod backdrop {
         ok.then_some(r)
     }
 
-    /// The screen under the window, downscaled to W pixels wide. The caller must have the
-    /// window excluded from capture, or the grab would contain the widget itself.
-    pub fn grab(hwnd: HWND) -> Option<Backdrop> {
-        let r = rect(hwnd)?;
+    /// A screen area (x, y, sw × sh) downscaled to w × h, as RGBA.
+    fn sample(x: i32, y: i32, sw: i32, sh: i32, w: i32, h: i32) -> Option<Vec<u8>> {
         unsafe {
-            let (sw, sh) = (r.right - r.left, r.bottom - r.top);
-            let h = (W * sh / sw).max(1);
             let screen = GetDC(null_mut());
             let mem = CreateCompatibleDC(screen);
-            let bmp = CreateCompatibleBitmap(screen, W, h);
+            let bmp = CreateCompatibleBitmap(screen, w, h);
             let old = SelectObject(mem, bmp);
             SetStretchBltMode(mem, HALFTONE);
-            let copied = StretchBlt(mem, 0, 0, W, h, screen, r.left, r.top, sw, sh, SRCCOPY) != 0;
+            let copied = StretchBlt(mem, 0, 0, w, h, screen, x, y, sw, sh, SRCCOPY) != 0;
             SelectObject(mem, old); // GetDIBits needs the bitmap deselected
 
             let mut info: BITMAPINFO = zeroed();
             info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-            info.bmiHeader.biWidth = W;
+            info.bmiHeader.biWidth = w;
             info.bmiHeader.biHeight = -h; // negative = top-down rows
             info.bmiHeader.biPlanes = 1;
             info.bmiHeader.biBitCount = 32;
             info.bmiHeader.biCompression = BI_RGB;
-            let mut px = vec![0u8; (W * h * 4) as usize];
+            let mut px = vec![0u8; (w * h * 4) as usize];
             let rows = GetDIBits(mem, bmp, 0, h as u32, px.as_mut_ptr().cast(), &mut info, DIB_RGB_COLORS);
 
             DeleteObject(bmp);
@@ -619,28 +615,61 @@ mod backdrop {
                 p.swap(0, 2); // BGRA -> RGBA
                 p[3] = 255;
             }
-            Some(Backdrop { w: W, h, px })
+            Some(px)
         }
+    }
+
+    /// The screen under the window, downscaled to W pixels wide. The caller must have the
+    /// window excluded from capture, or the grab would contain the widget itself.
+    pub fn grab(r: &RECT) -> Option<Backdrop> {
+        let (sw, sh) = (r.right - r.left, r.bottom - r.top);
+        let h = (W * sh / sw).max(1);
+        sample(r.left, r.top, sw, sh, W, h).map(|px| Backdrop { w: W, h, px })
+    }
+
+    /// A thin ring of screen just outside the window: it never contains the widget, so it can be
+    /// read at any time, and it changes whenever what is behind the widget likely changed.
+    pub fn ring(r: &RECT) -> Vec<u8> {
+        const M: i32 = 6; // ring thickness in pixels
+        let (w, h) = (r.right - r.left, r.bottom - r.top);
+        [
+            sample(r.left - M, r.top - M, w + 2 * M, M, 24, 1),  // above
+            sample(r.left - M, r.bottom, w + 2 * M, M, 24, 1),   // below
+            sample(r.left - M, r.top, M, h, 1, 24),              // left
+            sample(r.right, r.top, M, h, 1, 24),                 // right
+        ]
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect()
     }
 }
 
-/// Sends the backdrop behind the widget to the page while real blur is on: once a second, and
-/// right away when the widget moves or resizes; only when the picture actually changed.
+/// Sends the backdrop behind the widget to the page while real blur is on.
 ///
-/// The widget is hidden from capture only for the moment of each grab (SETTLE + a few ms), so
-/// screenshots, recordings and screen sharing include it the rest of the time.
+/// Every 50 ms it reads a thin ring of screen just outside the widget (no hiding needed). When the
+/// ring changes (scrolling, window switches, video), or the widget moves, or a second has passed,
+/// it grabs the area behind the widget. Only for that grab is the widget hidden from capture
+/// (SETTLE + a few ms), so screenshots, recordings and screen sharing include it otherwise.
 #[cfg(windows)]
 fn spawn_backdrop(app: AppHandle) {
     use std::hash::{Hash, Hasher};
     /// How long Windows needs to drop the widget from the next composed screen frame.
     const SETTLE: Duration = Duration::from_millis(50);
-    const EVERY: Duration = Duration::from_secs(1);
+    const EVERY: Duration = Duration::from_secs(1); // safety refresh
+    const MIN_GAP: Duration = Duration::from_millis(200); // caps grabs at 5/s while things change
+    let hash = |bytes: &[u8]| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut h);
+        h.finish()
+    };
     std::thread::spawn(move || {
         let mut last = 0u64;
         let mut last_rect = (0, 0, 0, 0);
+        let mut last_ring = 0u64;
         let mut last_grab: Option<Instant> = None;
         loop {
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(50));
             let on = app.state::<Shared>().lock().unwrap().settings.blur;
             let Some(w) = app.get_webview_window("main") else { continue };
             if !on || w.is_minimized().unwrap_or(true) {
@@ -650,23 +679,24 @@ fn spawn_backdrop(app: AppHandle) {
             let Ok(hwnd) = w.hwnd() else { continue };
             let hwnd = hwnd.0 as _;
             let Some(r) = backdrop::rect(hwnd) else { continue };
-            let moved = (r.left, r.top, r.right, r.bottom) != last_rect;
-            if !moved && last_grab.is_some_and(|t| t.elapsed() < EVERY) {
+            let ring = hash(&backdrop::ring(&r));
+            let changed = (r.left, r.top, r.right, r.bottom) != last_rect || ring != last_ring;
+            let since = last_grab.map_or(Duration::MAX, |t| t.elapsed());
+            if since < MIN_GAP || (!changed && since < EVERY) {
                 continue;
             }
             last_rect = (r.left, r.top, r.right, r.bottom);
+            last_ring = ring;
             last_grab = Some(Instant::now());
 
             backdrop::exclude_from_capture(hwnd, true);
             std::thread::sleep(SETTLE);
-            let frame = backdrop::grab(hwnd);
+            let frame = backdrop::grab(&r);
             backdrop::exclude_from_capture(hwnd, false);
             let Some(frame) = frame else { continue };
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            frame.px.hash(&mut hasher);
-            let hash = hasher.finish();
-            if hash != last {
-                last = hash;
+            let h = hash(&frame.px);
+            if h != last {
+                last = h;
                 let _ = app.emit_to("main", "backdrop", frame);
             }
         }

@@ -82,19 +82,63 @@ function brightness(fx0, fy0, fx1, fy1) {
   return n ? sum / n / 255 : 0.5;
 }
 
-function drawBackdrop() {
+const next = document.createElement("canvas"); // the glass for the newest frame
+const prev = document.createElement("canvas"); // what was on screen when it arrived
+const FADE_MS = 280;
+let fadeStart = 0;
+
+/** Draws the glass for the current frame. With `fade`, crossfades from what is on screen. */
+function drawBackdrop(fade = false) {
   const root = document.documentElement;
   root.classList.toggle("real-blur", realBlur && !!frame);
   if (!realBlur || !frame || !innerWidth) return;
+  const k = devicePixelRatio / 2; // half resolution is plenty under a blur
+  const cw = Math.round(innerWidth * k), ch = Math.round(innerHeight * k);
+  const sizeChanged = canvas.width !== cw || canvas.height !== ch;
+  if (fade && !sizeChanged) {
+    prev.width = cw;
+    prev.height = ch;
+    prev.getContext("2d").drawImage(canvas, 0, 0); // mid-fade too: start from what is visible
+  }
+  composeGlass(next, cw, ch, k);
+  if (sizeChanged) {
+    canvas.width = cw;
+    canvas.height = ch;
+  }
+  if (!fade || sizeChanged) {
+    fadeStart = 0;
+    canvas.getContext("2d").drawImage(next, 0, 0);
+    return;
+  }
+  const running = fadeStart !== 0;
+  fadeStart = performance.now();
+  if (!running) requestAnimationFrame(fadeStep);
+}
+
+function fadeStep(now) {
+  if (!fadeStart) return;
+  const t = Math.min(1, (now - fadeStart) / FADE_MS);
+  const eased = t * t * (3 - 2 * t); // smoothstep
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1;
+  ctx.drawImage(prev, 0, 0);
+  ctx.globalAlpha = eased;
+  ctx.drawImage(next, 0, 0);
+  ctx.globalAlpha = 1;
+  if (t < 1) requestAnimationFrame(fadeStep);
+  else fadeStart = 0;
+}
+
+function composeGlass(target, cw, ch, k) {
   const { w, h, px } = frame;
   small.width = w;
   small.height = h;
   small.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), w, h), 0, 0);
-
-  const k = devicePixelRatio / 2; // half resolution is plenty under a blur
-  canvas.width = Math.round(innerWidth * k);
-  canvas.height = Math.round(innerHeight * k);
-  const ctx = canvas.getContext("2d");
+  target.width = cw; // also clears it
+  target.height = ch;
+  const ctx = target.getContext("2d");
+  const canvas = target; // the drawing below targets this canvas
   const shape = (el) => {
     const r = el.getBoundingClientRect();
     const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
@@ -131,7 +175,7 @@ function drawBackdrop() {
 
 listen("backdrop", (e) => {
   frame = e.payload;
-  requestAnimationFrame(drawBackdrop);
+  drawBackdrop(true);
 });
 
 function render(snap) {
