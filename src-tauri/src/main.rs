@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::utils::config::WindowEffectsConfig;
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -35,8 +36,8 @@ struct Settings {
     claude_refresh_min: u64, // 1-60
     always_on_top: bool,
     show_used: bool,   // bars show "% used" instead of "% left"
-    widget_opacity: u8, // whole widget, 20-100
-    blur: bool,         // native acrylic/vibrancy behind the widget
+    glass_opacity: u8,  // tint of the glass, 0 (clear) - 100; text stays sharp
+    blur: bool,         // frosted blur behind the windows
 }
 
 impl Default for Settings {
@@ -48,8 +49,8 @@ impl Default for Settings {
             claude_refresh_min: 5,
             always_on_top: true,
             show_used: false,
-            widget_opacity: 100,
-            blur: true,
+            glass_opacity: 65,
+            blur: false,
         }
     }
 }
@@ -428,15 +429,14 @@ fn apply(app: &AppHandle, poll_claude_now: bool) {
         s.snap.gemini = Row { connected: gemini_on, ..Default::default() };
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.set_always_on_top(s.settings.always_on_top);
-            // Same effects as tauri.conf.json; each OS applies the one it supports.
-            let blur = s.settings.blur.then(|| {
-                EffectsBuilder::new()
-                    .effects([Effect::Acrylic, Effect::HudWindow])
-                    .state(EffectState::Active)
-                    .radius(12.0)
-                    .build()
-            });
-            let _ = w.set_effects(blur);
+        }
+        for label in ["main", "settings"] {
+            if let Some(w) = app.get_webview_window(label) {
+                let _ = w.set_effects(glass_effects(s.settings.blur));
+                // Without blur the window's own corners are invisible, and the native shadow would
+                // only draw a grey outline around them. With blur, the shadow rounds the corners.
+                let _ = w.set_shadow(s.settings.blur);
+            }
         }
     }
     emit(app);
@@ -529,7 +529,7 @@ async fn get_status(app: AppHandle) -> Status {
 #[tauri::command]
 async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Status, String> {
     settings.claude_refresh_min = settings.claude_refresh_min.clamp(1, 60);
-    settings.widget_opacity = settings.widget_opacity.clamp(20, 100);
+    settings.glass_opacity = settings.glass_opacity.min(100);
     let path = settings_path(&app).ok_or("no config folder")?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -550,6 +550,18 @@ async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Status,
     Ok(detect(&dirs))
 }
 
+/// Frosted glass behind a window: acrylic on Windows, vibrancy on macOS. None = no blur, just
+/// the translucent CSS glass. (Windows' plain "blur" effect renders solid black on Windows 11 24H2+.)
+fn glass_effects(blur: bool) -> Option<WindowEffectsConfig> {
+    blur.then(|| {
+        EffectsBuilder::new()
+            .effects([Effect::Acrylic, Effect::HudWindow])
+            .state(EffectState::Active)
+            .radius(16.0)
+            .build()
+    })
+}
+
 // Async: building a window inside a sync command deadlocks on Windows.
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
@@ -557,14 +569,19 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         let _ = w.unminimize();
         return w.set_focus().map_err(|e| e.to_string());
     }
-    tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
+    let blur = app.state::<Shared>().lock().unwrap().settings.blur;
+    let mut builder = tauri::WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
         .title("Quotis Settings")
-        .inner_size(400.0, 600.0)
-        .min_inner_size(340.0, 400.0)
-        .always_on_top(true) // otherwise it can open behind the pinned widget
-        .build()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .inner_size(400.0, 640.0)
+        .min_inner_size(340.0, 420.0)
+        .decorations(false) // glass panel with its own title bar
+        .transparent(true)
+        .shadow(blur)
+        .always_on_top(true); // otherwise it can open behind the pinned widget
+    if let Some(fx) = glass_effects(blur) {
+        builder = builder.effects(fx);
+    }
+    builder.build().map(|_| ()).map_err(|e| e.to_string())
 }
 
 fn main() {

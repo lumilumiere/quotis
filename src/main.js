@@ -26,21 +26,21 @@ function bar(label, l) {
   if (!l) return "";
   const p = left(l);
   const shown = showUsed ? 100 - p : p;
-  const color = p > 50 ? "#34d399" : p > 20 ? "#fbbf24" : "#f87171"; // colour always tracks what's left
+  const color = p > 50 ? "#30d158" : p > 20 ? "#ffd60a" : "#ff453a"; // colour always tracks what's left
   const reset = until(l.resets_at);
-  return `<div class="flex items-center gap-2 text-[0.6875rem]">
-    <span class="w-8 text-white/50">${label}</span>
-    <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-      <div class="h-full rounded-full transition-[width] duration-500" style="width:${shown}%;background:${color}"></div>
+  return `<div class="flex items-center gap-2.5 text-[0.6875rem]">
+    <span class="w-7 text-white/55">${label}</span>
+    <div class="lg-track h-1 flex-1">
+      <div class="lg-fill h-full" style="width:${shown}%;--c:${color}"></div>
     </div>
-    <span class="w-[5.25rem] whitespace-nowrap text-right tabular-nums">${Math.round(shown)}% ${showUsed ? "used" : "left"}${reset ? `<span class="text-white/45"> · ${reset}</span>` : ""}</span>
+    <span class="w-[6rem] whitespace-nowrap text-right tabular-nums"><span class="font-medium">${Math.round(shown)}%</span><span class="text-white/50"> ${showUsed ? "used" : "left"}</span>${reset ? `<span class="text-white/50"> · ${reset}</span>` : ""}</span>
   </div>`;
 }
 
 function body(r) {
-  if (r.status) return `<div class="text-[0.6875rem] text-white/40">${r.status}</div>`;
-  if (r.five_hour || r.weekly) return bar("5h", r.five_hour) + bar("week", r.weekly);
-  return `<div class="text-[0.6875rem] tabular-nums text-white/70">5h ${fmt.format(r.tokens_5h ?? 0)} · 24h ${fmt.format(r.tokens_24h ?? 0)} tokens</div>`;
+  if (r.status) return `<div class="text-[0.6875rem] text-white/55">${r.status}</div>`;
+  if (r.five_hour || r.weekly) return bar("5h", r.five_hour) + bar("wk", r.weekly);
+  return `<div class="text-[0.6875rem] tabular-nums text-white/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-white/50">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-white/50">in 24h</span></div>`;
 }
 
 // Scale everything together: measure the content at 16px/rem, then pick the largest
@@ -60,22 +60,22 @@ function render(snap) {
   last = snap;
   const rows = ROWS.filter(([key]) => snap[key].connected); // tools that are off or not found stay hidden
   list.innerHTML = rows.length
-    ? rows.map(([key, name, color]) => `<li class="flex flex-col gap-1">
-        <div class="flex items-center gap-1.5 text-xs text-white/85">
+    ? rows.map(([key, name, color]) => `<li class="flex flex-col gap-1.5">
+        <div class="flex items-center gap-1.5 text-xs font-semibold">
           <span class="size-1.5 rounded-full" style="background:${color}"></span>${name}
         </div>
         ${body(snap[key])}
       </li>`).join("")
-    : `<li class="flex flex-col items-start gap-1.5 text-[0.6875rem] text-white/60">
+    : `<li class="flex flex-col items-start gap-2 text-[0.6875rem] text-white/75">
         No tools connected yet.
-        <button data-open-settings class="rounded-md bg-white/15 px-2 py-0.5 text-white hover:bg-white/25">Open settings</button>
+        <button data-open-settings class="lg-btn px-3 py-0.5 text-white">Open settings</button>
       </li>`;
   fit();
 }
 
 function applySettings(s) {
   showUsed = s.show_used;
-  document.querySelector("main").style.opacity = s.widget_opacity / 100; // fades background, text and bars together
+  document.documentElement.style.setProperty("--glass", s.glass_opacity / 100); // tints the glass only; text stays sharp
   if (last) render(last);
 }
 

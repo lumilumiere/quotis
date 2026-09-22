@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="widget">
+<html lang="en" class="glass-window widget">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,24 +7,24 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main data-tauri-drag-region class="glass relative h-screen w-screen select-none overflow-hidden text-white">
+    <main data-tauri-drag-region class="lg h-screen w-screen select-none overflow-hidden">
       <!-- All sizes are rem-based; main.js scales the root font-size so this block always fits the window. -->
-      <div id="fit" class="flex flex-col gap-2.5 p-3">
-        <header class="flex items-center justify-between">
-          <span class="text-[0.625rem] font-semibold uppercase tracking-widest text-white/60">Quotis</span>
-          <div class="flex items-center gap-1">
-            <button data-open-settings aria-label="Settings" title="Settings" class="grid size-4 place-items-center rounded-full text-white/50 hover:bg-white/15 hover:text-white">
+      <div id="fit" class="flex flex-col gap-3 px-4 pb-4 pt-3">
+        <header class="flex h-5 items-center justify-between">
+          <span class="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-white/60">Quotis</span>
+          <div class="hover-reveal flex items-center gap-1.5">
+            <button data-open-settings aria-label="Settings" title="Settings" class="lg-btn grid size-5 place-items-center text-white/85">
               <svg viewBox="0 0 24 24" class="size-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
               </svg>
             </button>
-            <button id="close" aria-label="Close" title="Quit" class="grid size-4 place-items-center rounded-full text-xs leading-none text-white/50 hover:bg-white/15 hover:text-white">×</button>
+            <button id="close" aria-label="Quit" title="Quit" class="lg-btn grid size-5 place-items-center text-sm leading-none text-white/85">×</button>
           </div>
         </header>
-        <ul id="list" class="flex flex-col gap-2.5"></ul>
+        <ul id="list" class="flex flex-col gap-3.5"></ul>
       </div>
-      <button id="grip" aria-label="Resize" class="absolute bottom-1 right-1 size-3 cursor-se-resize text-white/30 hover:text-white/70">
+      <button id="grip" aria-label="Resize" class="hover-reveal absolute bottom-1.5 right-1.5 size-3 cursor-se-resize text-white/50">
         <svg viewBox="0 0 12 12" class="size-full" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <path d="M11 4 4 11M11 8 8 11" />
         </svg>

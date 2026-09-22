@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const TOOLS = [
   ["claude", "Claude Code", "Sign in to Claude Code with a Pro or Max plan. Shows your exact 5-hour and weekly limits."],
@@ -9,16 +11,15 @@ const $ = (id) => document.getElementById(id);
 let settings;
 
 $("tools").innerHTML = TOOLS.map(([key, name, hint]) => `
-  <div class="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
-    <label class="flex items-center gap-2 font-medium">
-      <input type="checkbox" data-key="${key}" data-field="enabled" class="size-4 accent-emerald-400" />
-      ${name}
-      <span id="st-${key}" class="ml-auto text-xs font-normal"></span>
+  <div class="space-y-2 px-3.5 py-3">
+    <label class="flex items-center justify-between gap-3">
+      <span>${name} <span id="st-${key}" class="ml-1 text-[11px]"></span></span>
+      <input type="checkbox" data-key="${key}" data-field="enabled" class="lg-switch" />
     </label>
     <input data-key="${key}" data-field="dir" spellcheck="false" placeholder="Folder (auto-detect)"
-      class="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-xs placeholder:font-sans" />
-    <p class="text-xs text-white/50">${hint}</p>
-    <p id="path-${key}" class="truncate font-mono text-[11px] text-white/35"></p>
+      class="lg-field w-full px-2.5 py-1.5 font-mono text-[11px] placeholder:font-sans" />
+    <p class="text-[11px] leading-relaxed text-white/45">${hint}</p>
+    <p id="path-${key}" class="truncate font-mono text-[10px] text-white/35"></p>
   </div>`).join("");
 
 function showStatus(status) {
@@ -26,12 +27,14 @@ function showStatus(status) {
     const s = status[key];
     const on = settings[key].enabled;
     const badge = $(`st-${key}`);
-    badge.textContent = !on ? "Off" : s.found ? "● Connected" : "○ Not found";
-    badge.className = `ml-auto text-xs font-normal ${!on ? "text-white/40" : s.found ? "text-emerald-400" : "text-amber-400"}`;
+    badge.textContent = !on ? "Off" : s.found ? "Connected" : "Not found";
+    badge.className = `ml-1 text-[11px] ${!on ? "text-white/40" : s.found ? "text-[#30d158]" : "text-[#ffd60a]"}`;
     $(`path-${key}`).textContent = s.path; // textContent: paths are user input
     $(`path-${key}`).title = s.path;
   }
 }
+
+const setGlass = (pct) => ($("glass_out").value = `${pct}%`); // the widget previews it live
 
 function fill() {
   for (const el of document.querySelectorAll("[data-key]")) {
@@ -40,8 +43,8 @@ function fill() {
   }
   $("always_on_top").checked = settings.always_on_top;
   $("show_used").value = settings.show_used ? "used" : "left";
-  $("opacity").value = settings.widget_opacity;
-  $("opacity_out").value = `${settings.widget_opacity}%`;
+  $("glass_opacity").value = settings.glass_opacity;
+  setGlass(settings.glass_opacity);
   $("blur").checked = settings.blur;
   $("refresh").value = settings.claude_refresh_min;
 }
@@ -53,7 +56,7 @@ async function save() {
   }
   settings.always_on_top = $("always_on_top").checked;
   settings.show_used = $("show_used").value === "used";
-  settings.widget_opacity = Number($("opacity").value);
+  settings.glass_opacity = Number($("glass_opacity").value);
   settings.blur = $("blur").checked;
   settings.claude_refresh_min = Math.min(60, Math.max(1, Math.round(Number($("refresh").value) || 5)));
   $("refresh").value = settings.claude_refresh_min;
@@ -69,7 +72,13 @@ async function save() {
 
 // "change" fires once per edit (on blur/Enter for text, on release for the slider), so each save is one write.
 document.addEventListener("change", save);
-$("opacity").addEventListener("input", () => ($("opacity_out").value = `${$("opacity").value}%`));
+// While dragging the slider, preview the glass live in both windows without saving.
+$("glass_opacity").addEventListener("input", () => {
+  const pct = Number($("glass_opacity").value);
+  setGlass(pct);
+  emit("settings", { ...settings, glass_opacity: pct });
+});
+$("close").onclick = () => getCurrentWindow().close();
 
 settings = await invoke("get_settings");
 fill();

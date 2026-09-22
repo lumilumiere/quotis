@@ -1,20 +1,137 @@
 @import "tailwindcss";
 
-/* Widget window only (the settings window is a normal opaque window). */
-html.widget, html.widget body {
+/* ---------- Minimal Liquid Glass ----------
+   Windows are transparent; the only thing painted is one glass panel. Its tint comes from
+   Settings → Glass opacity (--glass). Text never fades and carries a soft shadow so it stays
+   readable over light and dark backgrounds alike. */
+
+html.glass-window, html.glass-window body {
   margin: 0;
+  height: 100%;
   overflow: hidden;
-  background: transparent; /* the native acrylic/vibrancy shows through */
+  background: transparent;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "SF Pro Text", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-.glass {
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgb(30 30 40 / 0.45), rgb(30 30 40 / 0.25));
-  border: 1px solid rgb(255 255 255 / 0.14);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
+.lg {
+  position: relative;
+  border-radius: 22px;
+  color: white;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.55), 0 0 1px rgb(0 0 0 / 0.4);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.02) 45%, rgb(255 255 255 / 0.05)),
+    rgb(20 20 26 / var(--glass, 0.65));
+  box-shadow: inset 0 1px 0.5px rgb(255 255 255 / 0.5), inset 0 -0.5px 0.5px rgb(255 255 255 / 0.15);
 }
 
-/* data-tauri-drag-region only fires when the tagged element itself is clicked.
-   Making the children click-through lets you drag from anywhere on the note. */
-.glass * { pointer-events: none; }
-.glass button { pointer-events: auto; }
+/* Specular rim: bright where light lands (top edge, corners), nearly gone at the sides. */
+.lg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.08) 30%, rgb(255 255 255 / 0.02) 65%, rgb(255 255 255 / 0.3));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Grouped list (iOS Settings style): a faint inset plate with hairline dividers. */
+.lg-group {
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.2);
+}
+.lg-group > * + * { border-top: 0.5px solid rgb(255 255 255 / 0.12); }
+
+/* Round glass buttons. */
+.lg-btn {
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.5);
+  transition: background 0.15s, transform 0.15s, opacity 0.2s;
+}
+.lg-btn:hover { background: rgb(255 255 255 / 0.26); }
+.lg-btn:active { transform: scale(0.92); }
+
+/* Hairline progress capsule with a glowing liquid fill (colour in --c). */
+.lg-track { border-radius: 999px; background: rgb(255 255 255 / 0.14); }
+.lg-fill {
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 60%, white), var(--c));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--c) 55%, transparent);
+  transition: width 0.5s;
+}
+
+/* Inputs: borderless wells. */
+.lg-field {
+  border-radius: 9px;
+  background: rgb(0 0 0 / 0.2);
+  color: white;
+  outline: none;
+  box-shadow: inset 0 0.5px 1px rgb(0 0 0 / 0.3);
+}
+.lg-field:focus { box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.45); }
+.lg-field::placeholder { color: rgb(255 255 255 / 0.4); }
+.lg-field option { background: #1c1c22; }
+
+/* iOS switch. */
+.lg-switch {
+  appearance: none;
+  flex-shrink: 0;
+  position: relative;
+  width: 2.6rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgb(255 255 255 / 0.18);
+  transition: background 0.2s;
+}
+.lg-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.55rem - 4px);
+  height: calc(1.55rem - 4px);
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.3);
+  transition: transform 0.2s;
+}
+.lg-switch:checked { background: #34c759; }
+.lg-switch:checked::after { transform: translateX(1.05rem); }
+
+/* Slider: hairline track, white knob. */
+.lg-range {
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.22);
+  cursor: pointer;
+}
+.lg-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+
+.lg-switch:focus-visible, .lg-range:focus-visible, .lg-btn:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.6);
+  outline-offset: 2px;
+}
+
+.lg-scroll { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.25) transparent; }
+
+/* Widget: controls appear on hover; children are click-through so the whole
+   note is a drag handle (data-tauri-drag-region only fires on the tagged element). */
+html.widget .hover-reveal { opacity: 0; transition: opacity 0.2s; }
+html.widget main:hover .hover-reveal, html.widget main:focus-within .hover-reveal { opacity: 1; }
+html.widget main * { pointer-events: none; }
+html.widget main button { pointer-events: auto; }

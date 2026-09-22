@@ -1,69 +1,76 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="glass-window">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Quotis Settings</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body class="min-h-screen bg-[#17171f] text-sm text-white/90 [color-scheme:dark]">
-    <main class="mx-auto max-w-md space-y-6 p-5">
-      <section class="space-y-3">
-        <h2 class="text-xs font-semibold uppercase tracking-widest text-white/50">Connections</h2>
-        <p class="text-xs leading-relaxed text-white/50">
-          Each tool is read from its own folder on this computer. Leave the folder empty to auto-detect it.
-          Tools that are turned off or not found are hidden from the widget.
-        </p>
-        <div id="tools" class="space-y-3"></div>
-      </section>
+  <body class="text-[13px] [color-scheme:dark]">
+    <!-- Settings is a form: it keeps a readable tint no matter how clear the widget is set. -->
+    <div class="lg flex h-screen flex-col [--glass:0.72]">
+      <header data-tauri-drag-region class="flex items-center justify-between px-5 pb-2 pt-4">
+        <span data-tauri-drag-region class="text-[15px] font-semibold">Settings</span>
+        <button id="close" aria-label="Close settings" class="lg-btn grid size-6 place-items-center leading-none">×</button>
+      </header>
 
-      <section class="space-y-3">
-        <h2 class="text-xs font-semibold uppercase tracking-widest text-white/50">Display</h2>
-        <label class="flex items-center justify-between gap-4">
-          Keep widget on top of other windows
-          <input id="always_on_top" type="checkbox" class="size-4 accent-emerald-400" />
-        </label>
-        <label class="flex items-center justify-between gap-4">
-          Bars show
-          <select id="show_used" class="rounded-md border border-white/10 bg-black/30 px-2 py-1">
-            <option value="left">% left</option>
-            <option value="used">% used</option>
-          </select>
-        </label>
-        <label class="flex items-center justify-between gap-4">
-          Opacity
-          <span class="flex items-center gap-2">
-            <input id="opacity" type="range" min="20" max="100" class="w-32 accent-emerald-400" />
-            <output id="opacity_out" class="w-9 text-right tabular-nums text-white/60"></output>
-          </span>
-        </label>
-        <label class="flex items-center justify-between gap-4">
-          <span>
-            Blur behind widget
-            <span class="block text-xs text-white/40">Turn off, with lower opacity, for a see-through widget.</span>
-          </span>
-          <input id="blur" type="checkbox" class="size-4 accent-emerald-400" />
-        </label>
-      </section>
+      <main class="lg-scroll flex-1 space-y-5 overflow-y-auto px-4 pb-5">
+        <section class="space-y-1.5">
+          <h2 class="px-3 text-[11px] uppercase tracking-wider text-white/50">Connections</h2>
+          <div id="tools" class="lg-group"></div>
+          <p class="px-3 text-[11px] leading-relaxed text-white/45">
+            Leave a folder empty to auto-detect it. Tools that are off or not found are hidden from the widget.
+          </p>
+        </section>
 
-      <section class="space-y-3">
-        <h2 class="text-xs font-semibold uppercase tracking-widest text-white/50">Refresh</h2>
-        <label class="flex items-center justify-between gap-4">
-          Check Claude limits every
-          <span class="flex items-center gap-2">
-            <input id="refresh" type="number" min="1" max="60" class="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-right" />
-            minutes
-          </span>
-        </label>
-        <p class="text-xs text-white/40">Codex and Gemini update instantly from their log files.</p>
-      </section>
+        <section class="space-y-1.5">
+          <h2 class="px-3 text-[11px] uppercase tracking-wider text-white/50">Appearance</h2>
+          <div class="lg-group">
+            <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
+              Glass opacity
+              <span class="flex items-center gap-2.5">
+                <input id="glass_opacity" type="range" min="0" max="100" class="lg-range w-28" />
+                <output id="glass_out" class="w-9 text-right tabular-nums text-white/60"></output>
+              </span>
+            </label>
+            <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
+              <span>Frosted blur <span class="block text-[11px] text-white/45">Adds a light frost; off is fully clear.</span></span>
+              <input id="blur" type="checkbox" class="lg-switch" />
+            </label>
+            <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
+              Keep on top
+              <input id="always_on_top" type="checkbox" class="lg-switch" />
+            </label>
+            <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
+              Bars show
+              <select id="show_used" class="lg-field px-2.5 py-1">
+                <option value="left">% left</option>
+                <option value="used">% used</option>
+              </select>
+            </label>
+          </div>
+        </section>
 
-      <p class="text-xs leading-relaxed text-white/40">
-        Privacy: nothing is uploaded. The only network request is Claude's limit check, sent to api.anthropic.com
-        with your existing Claude Code login. Turn Claude off to stop it.
-      </p>
-      <p id="saved" class="h-4 text-xs text-emerald-400"></p>
-    </main>
+        <section class="space-y-1.5">
+          <h2 class="px-3 text-[11px] uppercase tracking-wider text-white/50">Refresh</h2>
+          <div class="lg-group">
+            <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
+              Check Claude every
+              <span class="flex items-center gap-2 text-white/60">
+                <input id="refresh" type="number" min="1" max="60" class="lg-field w-14 px-2 py-1 text-right text-white" />
+                min
+              </span>
+            </label>
+          </div>
+          <p class="px-3 text-[11px] leading-relaxed text-white/45">
+            Codex and Gemini update instantly. Nothing is uploaded: the only request is Claude's limit check to
+            api.anthropic.com, using your Claude Code login.
+          </p>
+        </section>
+
+        <p id="saved" class="h-4 px-3 text-[11px] text-[#30d158]"></p>
+      </main>
+    </div>
     <script type="module" src="/src/settings.js"></script>
   </body>
 </html>

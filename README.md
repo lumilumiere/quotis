@@ -2,7 +2,7 @@
 
 A tiny floating widget that shows how much of your AI coding limits you have left: **Claude Code**, **Codex** and **Gemini CLI**, at a glance.
 
-It sits on your desktop like a sticky note: frameless, translucent, always on top, draggable and resizable.
+It sits on your desktop like a sticky note: a minimal, see-through Liquid Glass panel that stays on top and can be dragged and resized.
 
 | Tool | What Quotis shows | Where it comes from |
 |---|---|---|
@@ -31,12 +31,12 @@ The builds are not code-signed, so your OS will warn you the first time:
 
 - **Move**: drag anywhere on the widget.
 - **Resize**: drag the grip in the bottom-right corner. Everything scales to fit.
-- **Settings**: the gear icon. **Quit**: the ×.
+- **Settings** and **Quit**: the gear and × appear when you hover over the widget.
 
 ### Settings
 
 - **Connections**: turn each tool on or off. Quotis auto-detects each tool's folder (`~/.claude`, `~/.codex`, `~/.gemini`, and it respects `CLAUDE_CONFIG_DIR` / `CODEX_HOME`). If yours lives elsewhere, type the folder in and the status will show **Connected** once it's found.
-- **Display**: keep on top, show bars as % left or % used, opacity, blur behind the widget.
+- **Appearance**: glass opacity (how tinted the glass is; text always stays sharp), frosted blur, keep on top, and bars as % left or % used.
 - **Refresh**: how often to check Claude's limits (1–60 min). Codex and Gemini update instantly when their logs change.
 
 ### Requirements per tool
