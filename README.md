@@ -36,7 +36,7 @@ The builds are not code-signed, so your OS will warn you the first time:
 ### Settings
 
 - **Connections**: turn each tool on or off. Quotis auto-detects each tool's folder (`~/.claude`, `~/.codex`, `~/.gemini`, and it respects `CLAUDE_CONFIG_DIR` / `CODEX_HOME`). If yours lives elsewhere, type the folder in and the status will show **Connected** once it's found.
-- **Appearance**: theme (System, Dark or Light), glass opacity (how tinted the glass is; text always stays sharp), frosted blur, keep on top, and bars as % left or % used.
+- **Appearance**: iOS-style glass with white text. Theme (Light = clearest glass, Dark = smoked glass, System follows your OS), glass opacity, **real blur**, keep on top, and bars as % left or % used.
 - **Refresh**: how often to check Claude's limits (1–60 min). Codex and Gemini update instantly when their logs change.
 
 ### Requirements per tool
@@ -49,6 +49,7 @@ The builds are not code-signed, so your OS will warn you the first time:
 
 - Everything is read from files already on your computer. Nothing is uploaded or collected.
 - The **only** network request is Claude's limit check: a small request to `api.anthropic.com`, sent with the login Claude Code already stored on your machine. Quotis never modifies or refreshes that login. On macOS, it reads it from the Keychain, which may ask you to allow access. Turn Claude off in Settings to stop the request entirely.
+- **Real blur (Windows):** to blur what is behind the widget, Quotis reads a tiny, low-resolution copy of that patch of screen a few times a second. It stays in memory and is never saved or sent anywhere. To avoid blurring itself, the widget excludes itself from screen capture, so it does not appear in screenshots, recordings or screen sharing while Real blur is on. Turn Real blur off in Settings to stop both. (macOS uses the system blur instead.)
 - The Claude endpoint is undocumented and may change. If it does, the Claude row shows an error instead of wrong numbers.
 
 ## Build from source

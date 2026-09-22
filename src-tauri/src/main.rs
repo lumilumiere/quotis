@@ -37,7 +37,7 @@ struct Settings {
     always_on_top: bool,
     show_used: bool,   // bars show "% used" instead of "% left"
     glass_opacity: u8,  // tint of the glass, 0 (clear) - 100; text stays sharp
-    blur: bool,         // frosted blur behind the windows
+    blur: bool,         // real blur of what is behind the widget (see "Real blur on Windows")
     theme: String,      // "system" (follow the OS), "dark" or "light"
 }
 
@@ -51,7 +51,7 @@ impl Default for Settings {
             always_on_top: true,
             show_used: false,
             glass_opacity: 55,
-            blur: false,
+            blur: true,
             theme: "system".into(),
         }
     }
@@ -432,12 +432,14 @@ fn apply(app: &AppHandle, poll_claude_now: bool) {
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.set_always_on_top(s.settings.always_on_top);
         }
+        #[cfg(windows)]
+        if let Some(Ok(hwnd)) = app.get_webview_window("main").map(|w| w.hwnd()) {
+            backdrop::exclude_from_capture(hwnd.0 as _, s.settings.blur);
+        }
+        #[cfg(not(windows))]
         for label in ["main", "settings"] {
             if let Some(w) = app.get_webview_window(label) {
                 let _ = w.set_effects(glass_effects(s.settings.blur));
-                // Without blur the window's own corners are invisible, and the native shadow would
-                // only draw a grey outline around them. With blur, the shadow rounds the corners.
-                let _ = w.set_shadow(s.settings.blur);
             }
         }
     }
@@ -555,12 +557,112 @@ async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Status,
     Ok(detect(&dirs))
 }
 
-/// Frosted glass behind a window: acrylic on Windows, vibrancy on macOS. None = no blur, just
-/// the translucent CSS glass. (Windows' plain "blur" effect renders solid black on Windows 11 24H2+.)
+// ---------- Real blur on Windows ----------
+// Windows has no usable blur-behind for transparent windows (its "blur" effect renders black on
+// Windows 11 24H2+, and acrylic is an opaque grey). So the widget excludes itself from screen
+// capture, grabs a tiny downscaled copy of the screen behind it, and the page blurs that
+// inside each glass tile. Frames never leave the process.
+
+#[derive(Clone, Serialize)]
+struct Backdrop {
+    w: i32,
+    h: i32,
+    px: Vec<u8>, // RGBA, row-major, top-down
+}
+
+#[cfg(windows)]
+mod backdrop {
+    use super::Backdrop;
+    use std::mem::{size_of, zeroed};
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::Graphics::Gdi::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+
+    /// Width of the grabbed copy; the blur hides the missing detail.
+    const W: i32 = 64;
+
+    /// Keeps the window out of screenshots, recordings and screen sharing (and out of our own grab).
+    pub fn exclude_from_capture(hwnd: HWND, on: bool) {
+        unsafe { SetWindowDisplayAffinity(hwnd, if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) };
+    }
+
+    /// The screen under the window, downscaled to W pixels wide.
+    pub fn grab(hwnd: HWND) -> Option<Backdrop> {
+        unsafe {
+            let mut r: RECT = zeroed();
+            if GetWindowRect(hwnd, &mut r) == 0 || r.right <= r.left || r.bottom <= r.top {
+                return None;
+            }
+            let (sw, sh) = (r.right - r.left, r.bottom - r.top);
+            let h = (W * sh / sw).max(1);
+            let screen = GetDC(null_mut());
+            let mem = CreateCompatibleDC(screen);
+            let bmp = CreateCompatibleBitmap(screen, W, h);
+            let old = SelectObject(mem, bmp);
+            SetStretchBltMode(mem, HALFTONE);
+            let copied = StretchBlt(mem, 0, 0, W, h, screen, r.left, r.top, sw, sh, SRCCOPY) != 0;
+            SelectObject(mem, old); // GetDIBits needs the bitmap deselected
+
+            let mut info: BITMAPINFO = zeroed();
+            info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+            info.bmiHeader.biWidth = W;
+            info.bmiHeader.biHeight = -h; // negative = top-down rows
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            let mut px = vec![0u8; (W * h * 4) as usize];
+            let rows = GetDIBits(mem, bmp, 0, h as u32, px.as_mut_ptr().cast(), &mut info, DIB_RGB_COLORS);
+
+            DeleteObject(bmp);
+            DeleteDC(mem);
+            ReleaseDC(null_mut(), screen);
+            if !copied || rows == 0 {
+                return None;
+            }
+            for p in px.chunks_exact_mut(4) {
+                p.swap(0, 2); // BGRA -> RGBA
+                p[3] = 255;
+            }
+            Some(Backdrop { w: W, h, px })
+        }
+    }
+}
+
+/// Sends the backdrop behind the widget to the page ~5x a second while real blur is on,
+/// but only when it actually changed.
+#[cfg(windows)]
+fn spawn_backdrop(app: AppHandle) {
+    use std::hash::{Hash, Hasher};
+    std::thread::spawn(move || {
+        let mut last = 0u64;
+        loop {
+            std::thread::sleep(Duration::from_millis(200));
+            let on = app.state::<Shared>().lock().unwrap().settings.blur;
+            let Some(w) = app.get_webview_window("main") else { continue };
+            if !on || w.is_minimized().unwrap_or(true) {
+                last = 0;
+                continue;
+            }
+            let Ok(hwnd) = w.hwnd() else { continue };
+            let Some(frame) = backdrop::grab(hwnd.0 as _) else { continue };
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            frame.px.hash(&mut hasher);
+            let hash = hasher.finish();
+            if hash != last {
+                last = hash;
+                let _ = app.emit_to("main", "backdrop", frame);
+            }
+        }
+    });
+}
+
+/// Native blur behind a window where the OS provides a good one: vibrancy on macOS.
+/// (Windows uses the captured backdrop above instead.)
 fn glass_effects(blur: bool) -> Option<WindowEffectsConfig> {
     blur.then(|| {
         EffectsBuilder::new()
-            .effects([Effect::Acrylic, Effect::HudWindow])
+            .effects([Effect::HudWindow])
             .state(EffectState::Active)
             .radius(16.0)
             .build()
@@ -581,9 +683,9 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         .min_inner_size(340.0, 420.0)
         .decorations(false) // glass panel with its own title bar
         .transparent(true)
-        .shadow(blur)
+        .shadow(false) // a transparent window's shadow is just a grey outline around its corners
         .always_on_top(true); // otherwise it can open behind the pinned widget
-    if let Some(fx) = glass_effects(blur) {
+    if let Some(fx) = glass_effects(blur).filter(|_| cfg!(target_os = "macos")) {
         builder = builder.effects(fx);
     }
     builder.build().map(|_| ()).map_err(|e| e.to_string())
@@ -615,6 +717,8 @@ fn main() {
             }));
             apply(&handle, true);
             spawn_event_loop(handle.clone(), rx);
+            #[cfg(windows)]
+            spawn_backdrop(handle.clone());
             spawn_ticker(handle);
             Ok(())
         })

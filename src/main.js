@@ -54,20 +54,90 @@ function fit() {
   if (!innerWidth || !innerHeight) return; // minimized / hidden: keep the base size
   const scale = Math.min(innerWidth / BASE_W, innerHeight / fitBox.offsetHeight);
   root.fontSize = `${16 * scale}px`;
+  drawBackdrop(); // tiles moved or resized
 }
 addEventListener("resize", fit);
+
+// ---------- Real blur ----------
+// The backend sends a tiny copy of the screen behind the widget (~5x/s, only when it changes).
+// Each [data-glass] tile gets that image blurred and brightened like iOS glass, plus just enough
+// darkening (dark theme) or lightening (light theme) for its text to stay readable.
+const canvas = document.getElementById("backdrop");
+const small = document.createElement("canvas");
+let frame = null; // { w, h, px }
+let realBlur = false;
+let glass = 0.55;
+
+/** Mean brightness (0-1, sRGB) of the frame inside a rectangle given in window fractions. */
+function brightness(fx0, fy0, fx1, fy1) {
+  const { w, h, px } = frame;
+  const x0 = Math.max(0, Math.floor(fx0 * w)), x1 = Math.min(w, Math.ceil(fx1 * w));
+  const y0 = Math.max(0, Math.floor(fy0 * h)), y1 = Math.min(h, Math.ceil(fy1 * h));
+  let sum = 0, n = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = (y * w + x) * 4;
+      sum += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+      n++;
+    }
+  return n ? sum / n / 255 : 0.5;
+}
+
+function drawBackdrop() {
+  const root = document.documentElement;
+  root.classList.toggle("real-blur", realBlur && !!frame);
+  if (!realBlur || !frame || !innerWidth) return;
+  const { w, h, px } = frame;
+  small.width = w;
+  small.height = h;
+  small.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), w, h), 0, 0);
+
+  const k = devicePixelRatio / 2; // half resolution is plenty under a blur
+  canvas.width = Math.round(innerWidth * k);
+  canvas.height = Math.round(innerHeight * k);
+  const ctx = canvas.getContext("2d");
+  const smoky = root.dataset.theme !== "light"; // Dark = smoked glass, Light = clearest glass
+  for (const el of document.querySelectorAll("[data-glass]")) {
+    const r = el.getBoundingClientRect();
+    const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(r.x * k, r.y * k, r.width * k, r.height * k, radius * k);
+    ctx.clip();
+    // Overscan so the blur doesn't fade in from the canvas edges.
+    const o = 40 * k;
+    ctx.filter = `blur(${22 * k}px) saturate(1.8) brightness(1.08)`;
+    ctx.drawImage(small, -o, -o, canvas.width + 2 * o, canvas.height + 2 * o);
+    ctx.filter = "none";
+    // Contrast guard for the white text: darken only as much as the backdrop needs
+    // (never a white tint). Glass opacity and the Dark theme add a smokier minimum.
+    const b = Math.min(1, brightness(r.x / innerWidth, r.y / innerHeight, r.right / innerWidth, r.bottom / innerHeight) * 1.08);
+    const a = Math.max(glass * (smoky ? 0.5 : 0.2), 1 - 0.45 / Math.max(b, 0.01)); // tile <= 0.45 -> white text ~5:1
+    ctx.fillStyle = `rgba(0,0,0,${Math.max(0, a)})`;
+    ctx.fillRect(r.x * k, r.y * k, r.width * k, r.height * k);
+    ctx.restore();
+  }
+}
+
+// "System" theme can flip while the screen behind is still (no new frame): repaint for the new text colour.
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => drawBackdrop());
+
+listen("backdrop", (e) => {
+  frame = e.payload;
+  requestAnimationFrame(drawBackdrop);
+});
 
 function render(snap) {
   last = snap;
   const rows = ROWS.filter(([key]) => snap[key].connected); // tools that are off or not found stay hidden
   list.innerHTML = rows.length
-    ? rows.map(([key, name, color]) => `<li class="lg-card flex flex-col gap-1.5 px-3 py-2.5">
+    ? rows.map(([key, name, color]) => `<li data-glass class="lg-card flex flex-col gap-1.5 px-3 py-2.5">
         <div class="flex items-center gap-1.5 text-xs font-semibold">
           <span class="size-1.5 rounded-full" style="background:${color};box-shadow:0 0 6px ${color}"></span>${name}
         </div>
         ${body(snap[key])}
       </li>`).join("")
-    : `<li class="lg-card flex flex-col items-start gap-2 px-3 py-2.5 text-[0.6875rem] text-ink/75">
+    : `<li data-glass class="lg-card flex flex-col items-start gap-2 px-3 py-2.5 text-[0.6875rem] text-ink/75">
         No tools connected yet.
         <button data-open-settings class="lg-btn px-3 py-0.5 text-ink">Open settings</button>
       </li>`;
@@ -78,7 +148,11 @@ function applySettings(s) {
   showUsed = s.show_used;
   applyTheme(s.theme);
   document.documentElement.style.setProperty("--glass", s.glass_opacity / 100); // tints the glass only; text stays sharp
+  glass = s.glass_opacity / 100;
+  realBlur = s.blur;
+  if (!realBlur) frame = null; // fall back to the frosted tiles
   if (last) render(last);
+  else drawBackdrop();
 }
 
 const openSettings = () => invoke("open_settings");
