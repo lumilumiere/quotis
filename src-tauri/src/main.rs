@@ -430,10 +430,6 @@ fn apply(app: &AppHandle, poll_claude_now: bool) {
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.set_always_on_top(s.settings.always_on_top);
         }
-        #[cfg(windows)]
-        if let Some(Ok(hwnd)) = app.get_webview_window("main").map(|w| w.hwnd()) {
-            backdrop::exclude_from_capture(hwnd.0 as _, s.settings.blur);
-        }
         #[cfg(not(windows))]
         for label in ["main", "settings"] {
             if let Some(w) = app.get_webview_window(label) {
@@ -577,18 +573,22 @@ mod backdrop {
     /// Width of the grabbed copy; the blur hides the missing detail.
     const W: i32 = 64;
 
-    /// Keeps the window out of screenshots, recordings and screen sharing (and out of our own grab).
+    /// Hides the window from screen capture (screenshots, recordings, sharing, our own grab).
     pub fn exclude_from_capture(hwnd: HWND, on: bool) {
         unsafe { SetWindowDisplayAffinity(hwnd, if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) };
     }
 
-    /// The screen under the window, downscaled to W pixels wide.
+    pub fn rect(hwnd: HWND) -> Option<RECT> {
+        let mut r: RECT = unsafe { zeroed() };
+        let ok = unsafe { GetWindowRect(hwnd, &mut r) } != 0 && r.right > r.left && r.bottom > r.top;
+        ok.then_some(r)
+    }
+
+    /// The screen under the window, downscaled to W pixels wide. The caller must have the
+    /// window excluded from capture, or the grab would contain the widget itself.
     pub fn grab(hwnd: HWND) -> Option<Backdrop> {
+        let r = rect(hwnd)?;
         unsafe {
-            let mut r: RECT = zeroed();
-            if GetWindowRect(hwnd, &mut r) == 0 || r.right <= r.left || r.bottom <= r.top {
-                return None;
-            }
             let (sw, sh) = (r.right - r.left, r.bottom - r.top);
             let h = (W * sh / sw).max(1);
             let screen = GetDC(null_mut());
@@ -624,15 +624,23 @@ mod backdrop {
     }
 }
 
-/// Sends the backdrop behind the widget to the page ~5x a second while real blur is on,
-/// but only when it actually changed.
+/// Sends the backdrop behind the widget to the page while real blur is on: once a second, and
+/// right away when the widget moves or resizes; only when the picture actually changed.
+///
+/// The widget is hidden from capture only for the moment of each grab (SETTLE + a few ms), so
+/// screenshots, recordings and screen sharing include it the rest of the time.
 #[cfg(windows)]
 fn spawn_backdrop(app: AppHandle) {
     use std::hash::{Hash, Hasher};
+    /// How long Windows needs to drop the widget from the next composed screen frame.
+    const SETTLE: Duration = Duration::from_millis(50);
+    const EVERY: Duration = Duration::from_secs(1);
     std::thread::spawn(move || {
         let mut last = 0u64;
+        let mut last_rect = (0, 0, 0, 0);
+        let mut last_grab: Option<Instant> = None;
         loop {
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(100));
             let on = app.state::<Shared>().lock().unwrap().settings.blur;
             let Some(w) = app.get_webview_window("main") else { continue };
             if !on || w.is_minimized().unwrap_or(true) {
@@ -640,7 +648,20 @@ fn spawn_backdrop(app: AppHandle) {
                 continue;
             }
             let Ok(hwnd) = w.hwnd() else { continue };
-            let Some(frame) = backdrop::grab(hwnd.0 as _) else { continue };
+            let hwnd = hwnd.0 as _;
+            let Some(r) = backdrop::rect(hwnd) else { continue };
+            let moved = (r.left, r.top, r.right, r.bottom) != last_rect;
+            if !moved && last_grab.is_some_and(|t| t.elapsed() < EVERY) {
+                continue;
+            }
+            last_rect = (r.left, r.top, r.right, r.bottom);
+            last_grab = Some(Instant::now());
+
+            backdrop::exclude_from_capture(hwnd, true);
+            std::thread::sleep(SETTLE);
+            let frame = backdrop::grab(hwnd);
+            backdrop::exclude_from_capture(hwnd, false);
+            let Some(frame) = frame else { continue };
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             frame.px.hash(&mut hasher);
             let hash = hasher.finish();
