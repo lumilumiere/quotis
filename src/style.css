@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
-/* ---------- Minimal Liquid Glass ----------
-   Windows are transparent; the only thing painted is one glass panel. Its tint comes from
-   Settings → Glass opacity (--glass). Text never fades and carries a soft shadow so it stays
-   readable over light and dark backgrounds alike. */
+/* ---------- Liquid Glass ----------
+   Windows are transparent; only glass is painted. Its tint comes from Settings → Glass
+   opacity (--glass). Text never fades and carries a soft shadow so it stays readable over
+   light and dark backgrounds alike. */
 
 html.glass-window, html.glass-window body {
   margin: 0;
@@ -19,62 +19,82 @@ html.glass-window, html.glass-window body {
   border-radius: 22px;
   color: white;
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.55), 0 0 1px rgb(0 0 0 / 0.4);
+  isolation: isolate;
+  /* light pooling at the top-left, a faint bounce at the bottom-right, then the tint */
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.02) 45%, rgb(255 255 255 / 0.05)),
-    rgb(20 20 26 / var(--glass, 0.65));
-  box-shadow: inset 0 1px 0.5px rgb(255 255 255 / 0.5), inset 0 -0.5px 0.5px rgb(255 255 255 / 0.15);
+    radial-gradient(140% 90% at 0% 0%, rgb(255 255 255 / 0.2), transparent 50%),
+    radial-gradient(100% 80% at 100% 100%, rgb(255 255 255 / 0.07), transparent 60%),
+    rgb(16 18 28 / var(--glass, 0.55));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.45),
+    inset 0 -1px 0 rgb(255 255 255 / 0.1),
+    inset 0 0 22px rgb(255 255 255 / 0.06);
 }
 
-/* Specular rim: bright where light lands (top edge, corners), nearly gone at the sides. */
-.lg::before {
+/* Specular rim on every glass surface: bright where light lands (top-left, bottom-right),
+   thin along the sides. */
+.lg::before, .lg-card::before, .lg-group::before, .lg-btn::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
   pointer-events: none;
-  background: linear-gradient(160deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.08) 30%, rgb(255 255 255 / 0.02) 65%, rgb(255 255 255 / 0.3));
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.12) 35%, rgb(255 255 255 / 0.04) 60%, rgb(255 255 255 / 0.45));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
 }
 
-/* Grouped list (iOS Settings style): a faint inset plate with hairline dividers. */
-.lg-group {
-  border-radius: 14px;
-  background: rgb(255 255 255 / 0.07);
-  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.2);
+/* Raised glass card (one per tool in the widget; grouped lists in Settings). */
+.lg-card, .lg-group {
+  position: relative;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.11), rgb(255 255 255 / 0.03));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 4px 14px -6px rgb(0 0 0 / 0.45);
+}
+.lg-card::before, .lg-group::before {
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.45), rgb(255 255 255 / 0.06) 40%, rgb(255 255 255 / 0.03) 65%, rgb(255 255 255 / 0.25));
 }
 .lg-group > * + * { border-top: 0.5px solid rgb(255 255 255 / 0.12); }
 
-/* Round glass buttons. */
+/* Glass capsule buttons. */
 .lg-btn {
+  position: relative;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.14);
-  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.5);
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.4), 0 1px 4px rgb(0 0 0 / 0.3);
   transition: background 0.15s, transform 0.15s, opacity 0.2s;
 }
-.lg-btn:hover { background: rgb(255 255 255 / 0.26); }
+.lg-btn:hover { background: rgb(255 255 255 / 0.24); }
 .lg-btn:active { transform: scale(0.92); }
+.lg-btn::before {
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.65), rgb(255 255 255 / 0.05) 50%, rgb(255 255 255 / 0.3));
+}
 
-/* Hairline progress capsule with a glowing liquid fill (colour in --c). */
-.lg-track { border-radius: 999px; background: rgb(255 255 255 / 0.14); }
+/* Progress bar: a sunken glass channel with a glossy, glowing liquid fill (colour in --c). */
+.lg-track {
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.25);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.5), 0 1px 0 rgb(255 255 255 / 0.14);
+}
 .lg-fill {
   border-radius: 999px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 60%, white), var(--c));
-  box-shadow: 0 0 6px color-mix(in srgb, var(--c) 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 50%, white), var(--c) 60%);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--c) 70%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.6);
   transition: width 0.5s;
 }
 
-/* Inputs: borderless wells. */
+/* Inputs: sunken glass wells, like the bar channels. */
 .lg-field {
-  border-radius: 9px;
-  background: rgb(0 0 0 / 0.2);
+  border-radius: 10px;
+  background: rgb(0 0 0 / 0.25);
   color: white;
   outline: none;
-  box-shadow: inset 0 0.5px 1px rgb(0 0 0 / 0.3);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.45), 0 1px 0 rgb(255 255 255 / 0.12);
+  transition: box-shadow 0.15s;
 }
-.lg-field:focus { box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.45); }
+.lg-field:focus { box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.45), 0 0 0 2px rgb(255 255 255 / 0.4); }
 .lg-field::placeholder { color: rgb(255 255 255 / 0.4); }
 .lg-field option { background: #1c1c22; }
 

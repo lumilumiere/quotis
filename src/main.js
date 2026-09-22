@@ -30,7 +30,7 @@ function bar(label, l) {
   const reset = until(l.resets_at);
   return `<div class="flex items-center gap-2.5 text-[0.6875rem]">
     <span class="w-7 text-white/55">${label}</span>
-    <div class="lg-track h-1 flex-1">
+    <div class="lg-track h-2 flex-1 p-px">
       <div class="lg-fill h-full" style="width:${shown}%;--c:${color}"></div>
     </div>
     <span class="w-[6rem] whitespace-nowrap text-right tabular-nums"><span class="font-medium">${Math.round(shown)}%</span><span class="text-white/50"> ${showUsed ? "used" : "left"}</span>${reset ? `<span class="text-white/50"> · ${reset}</span>` : ""}</span>
@@ -60,13 +60,13 @@ function render(snap) {
   last = snap;
   const rows = ROWS.filter(([key]) => snap[key].connected); // tools that are off or not found stay hidden
   list.innerHTML = rows.length
-    ? rows.map(([key, name, color]) => `<li class="flex flex-col gap-1.5">
+    ? rows.map(([key, name, color]) => `<li class="lg-card flex flex-col gap-1.5 px-3 py-2.5">
         <div class="flex items-center gap-1.5 text-xs font-semibold">
-          <span class="size-1.5 rounded-full" style="background:${color}"></span>${name}
+          <span class="size-1.5 rounded-full" style="background:${color};box-shadow:0 0 6px ${color}"></span>${name}
         </div>
         ${body(snap[key])}
       </li>`).join("")
-    : `<li class="flex flex-col items-start gap-2 text-[0.6875rem] text-white/75">
+    : `<li class="lg-card flex flex-col items-start gap-2 px-3 py-2.5 text-[0.6875rem] text-white/75">
         No tools connected yet.
         <button data-open-settings class="lg-btn px-3 py-0.5 text-white">Open settings</button>
       </li>`;

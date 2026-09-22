@@ -49,7 +49,7 @@ impl Default for Settings {
             claude_refresh_min: 5,
             always_on_top: true,
             show_used: false,
-            glass_opacity: 65,
+            glass_opacity: 55,
             blur: false,
         }
     }
