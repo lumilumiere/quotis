@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { applyTheme } from "./theme.js";
 
 const ROWS = [
   ["claude", "Claude Code", "#d97757"],
@@ -61,7 +60,7 @@ addEventListener("resize", fit);
 // ---------- Real blur ----------
 // The backend sends a tiny copy of the screen behind the widget (~5x/s, only when it changes).
 // Each [data-glass] tile gets that image blurred and brightened like iOS glass, plus just enough
-// darkening (dark theme) or lightening (light theme) for its text to stay readable.
+// darkening under each card for its white text to stay readable.
 const canvas = document.getElementById("backdrop");
 const small = document.createElement("canvas");
 let frame = null; // { w, h, px }
@@ -96,7 +95,6 @@ function drawBackdrop() {
   canvas.width = Math.round(innerWidth * k);
   canvas.height = Math.round(innerHeight * k);
   const ctx = canvas.getContext("2d");
-  const smoky = root.dataset.theme !== "light"; // Dark = smoked glass, Light = clearest glass
   const shape = (el) => {
     const r = el.getBoundingClientRect();
     const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
@@ -113,7 +111,7 @@ function drawBackdrop() {
   ctx.filter = `blur(${22 * k}px) saturate(1.8) brightness(1.08)`;
   ctx.drawImage(small, -o, -o, canvas.width + 2 * o, canvas.height + 2 * o);
   ctx.filter = "none";
-  const base = glass * (smoky ? 0.5 : 0.2);
+  const base = glass * 0.2; // Glass opacity adds a little smoke
   ctx.fillStyle = `rgba(0,0,0,${base})`;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.restore();
@@ -130,9 +128,6 @@ function drawBackdrop() {
     ctx.fill();
   }
 }
-
-// "System" theme can flip while the screen behind is still (no new frame): repaint for the new text colour.
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => drawBackdrop());
 
 listen("backdrop", (e) => {
   frame = e.payload;
@@ -158,7 +153,6 @@ function render(snap) {
 
 function applySettings(s) {
   showUsed = s.show_used;
-  applyTheme(s.theme);
   document.documentElement.style.setProperty("--glass", s.glass_opacity / 100); // tints the glass only; text stays sharp
   glass = s.glass_opacity / 100;
   realBlur = s.blur;

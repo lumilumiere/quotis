@@ -5,15 +5,15 @@
    opacity (--glass). Text never fades and carries a soft shadow so it stays readable over
    light and dark backgrounds alike. */
 
-/* Theme tokens. data-theme on <html> is "dark" or "light" (main.js/settings.js resolve "system"). */
+/* Colour tokens, usable as Tailwind colours (text-ink, text-ok, ...). */
 @theme inline {
   --color-ink: var(--ink);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
 }
-/* Rich glass with white text and white bars in both themes, never a white tint.
-   The theme only sets how smoky the glass is (main.js: Light = clearer, Dark = smoked). */
+/* Rich glass with white text and white bars, never a white tint. It adapts to what is behind
+   it: main.js darkens the glass under each card only as much as the white text needs. */
 :root {
   --ink: #ffffff;
   --tint: 18 20 28;
