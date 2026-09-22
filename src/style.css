@@ -31,8 +31,8 @@
 }
 [data-theme="light"] {
   --ink: #0b0c10;
-  --tint: 210 210 210; /* neutral glass: no colour cast, not milk-white */
-  --sheen: 0.06;
+  --tint: 188 188 188; /* neutral smoke-grey glass: no colour cast, not white */
+  --sheen: 0.04;
   --ok: #1a8f40;
   --warn: #c56d00;
   --bad: #d42f25;
