@@ -36,7 +36,7 @@ The builds are not code-signed, so your OS will warn you the first time:
 ### Settings
 
 - **Connections**: turn each tool on or off. Quotis auto-detects each tool's folder (`~/.claude`, `~/.codex`, `~/.gemini`, and it respects `CLAUDE_CONFIG_DIR` / `CODEX_HOME`). If yours lives elsewhere, type the folder in and the status will show **Connected** once it's found.
-- **Appearance**: iOS-style glass with white text. Theme (Light = clearest glass, Dark = smoked glass, System follows your OS), glass opacity, **real blur**, keep on top, and bars as % left or % used.
+- **Appearance**: rich blurred glass with white text and bars. Theme (Light = clearer glass, Dark = smoked glass, System follows your OS), glass opacity, **real blur**, keep on top, and bars as % left or % used.
 - **Refresh**: how often to check Claude's limits (1–60 min). Codex and Gemini update instantly when their logs change.
 
 ### Requirements per tool

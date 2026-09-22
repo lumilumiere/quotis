@@ -97,25 +97,37 @@ function drawBackdrop() {
   canvas.height = Math.round(innerHeight * k);
   const ctx = canvas.getContext("2d");
   const smoky = root.dataset.theme !== "light"; // Dark = smoked glass, Light = clearest glass
-  for (const el of document.querySelectorAll("[data-glass]")) {
+  const shape = (el) => {
     const r = el.getBoundingClientRect();
     const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
-    ctx.save();
     ctx.beginPath();
     ctx.roundRect(r.x * k, r.y * k, r.width * k, r.height * k, radius * k);
-    ctx.clip();
-    // Overscan so the blur doesn't fade in from the canvas edges.
-    const o = 40 * k;
-    ctx.filter = `blur(${22 * k}px) saturate(1.8) brightness(1.08)`;
-    ctx.drawImage(small, -o, -o, canvas.width + 2 * o, canvas.height + 2 * o);
-    ctx.filter = "none";
-    // Contrast guard for the white text: darken only as much as the backdrop needs
-    // (never a white tint). Glass opacity and the Dark theme add a smokier minimum.
-    const b = Math.min(1, brightness(r.x / innerWidth, r.y / innerHeight, r.right / innerWidth, r.bottom / innerHeight) * 1.08);
-    const a = Math.max(glass * (smoky ? 0.5 : 0.2), 1 - 0.45 / Math.max(b, 0.01)); // tile <= 0.45 -> white text ~5:1
-    ctx.fillStyle = `rgba(0,0,0,${Math.max(0, a)})`;
-    ctx.fillRect(r.x * k, r.y * k, r.width * k, r.height * k);
-    ctx.restore();
+    return r;
+  };
+
+  // 1. The whole panel is glass: the blurred, brightened screen behind it, plus a base smoke.
+  ctx.save();
+  shape(document.querySelector("main"));
+  ctx.clip();
+  const o = 40 * k; // overscan so the blur does not fade in from the edges
+  ctx.filter = `blur(${22 * k}px) saturate(1.8) brightness(1.08)`;
+  ctx.drawImage(small, -o, -o, canvas.width + 2 * o, canvas.height + 2 * o);
+  ctx.filter = "none";
+  const base = glass * (smoky ? 0.5 : 0.2);
+  ctx.fillStyle = `rgba(0,0,0,${base})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  // 2. Contrast guard under each card: darken only as much as its white text needs there
+  //    (never a white tint). Brightness under text must stay <= 0.45, about 5:1 contrast.
+  for (const el of document.querySelectorAll("[data-glass]")) {
+    const r = el.getBoundingClientRect();
+    const b = Math.min(1, brightness(r.x / innerWidth, r.y / innerHeight, r.right / innerWidth, r.bottom / innerHeight) * 1.08) * (1 - base);
+    const a = 1 - 0.45 / Math.max(b, 0.01);
+    if (a <= 0) continue;
+    shape(el);
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    ctx.fill();
   }
 }
 
