@@ -5,6 +5,40 @@
    opacity (--glass). Text never fades and carries a soft shadow so it stays readable over
    light and dark backgrounds alike. */
 
+/* Theme tokens. data-theme on <html> is "dark" or "light" (main.js/settings.js resolve "system"). */
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+}
+:root, [data-theme="dark"] {
+  --ink: #ffffff;
+  --tint: 16 18 28;
+  --ok: #30d158;
+  --warn: #ffd60a;
+  --bad: #ff453a;
+  --text-shadow: 0 1px 2px rgb(0 0 0 / 0.55), 0 0 1px rgb(0 0 0 / 0.4);
+  --well: rgb(0 0 0 / 0.25);
+  --well-shadow: rgb(0 0 0 / 0.5);
+  --off: rgb(255 255 255 / 0.18);
+  --menu: #1c1c22;
+  --tint-boost: 1;
+}
+[data-theme="light"] {
+  --ink: #0b0c10;
+  --tint: 246 247 251;
+  --ok: #1f9d48;
+  --warn: #d97a00;
+  --bad: #e0352b;
+  --text-shadow: 0 1px 1px rgb(255 255 255 / 0.7);
+  --well: rgb(0 0 0 / 0.07);
+  --well-shadow: rgb(0 0 0 / 0.18);
+  --off: rgb(0 0 0 / 0.14);
+  --menu: #ffffff;
+  --tint-boost: 1.3; /* light glass needs more tint to read as solid as dark glass */
+}
+
 html.glass-window, html.glass-window body {
   margin: 0;
   height: 100%;
@@ -17,14 +51,14 @@ html.glass-window, html.glass-window body {
 .lg {
   position: relative;
   border-radius: 22px;
-  color: white;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.55), 0 0 1px rgb(0 0 0 / 0.4);
+  color: var(--ink);
+  text-shadow: var(--text-shadow);
   isolation: isolate;
   /* light pooling at the top-left, a faint bounce at the bottom-right, then the tint */
   background:
     radial-gradient(140% 90% at 0% 0%, rgb(255 255 255 / 0.2), transparent 50%),
     radial-gradient(100% 80% at 100% 100%, rgb(255 255 255 / 0.07), transparent 60%),
-    rgb(16 18 28 / var(--glass, 0.55));
+    rgb(var(--tint) / min(1, calc(var(--glass, 0.55) * var(--tint-boost))));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.45),
     inset 0 -1px 0 rgb(255 255 255 / 0.1),
@@ -75,8 +109,8 @@ html.glass-window, html.glass-window body {
 /* Progress bar: a sunken glass channel with a glossy, glowing liquid fill (colour in --c). */
 .lg-track {
   border-radius: 999px;
-  background: rgb(0 0 0 / 0.25);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.5), 0 1px 0 rgb(255 255 255 / 0.14);
+  background: var(--well);
+  box-shadow: inset 0 1px 2px var(--well-shadow), 0 1px 0 rgb(255 255 255 / 0.14);
 }
 .lg-fill {
   border-radius: 999px;
@@ -88,15 +122,15 @@ html.glass-window, html.glass-window body {
 /* Inputs: sunken glass wells, like the bar channels. */
 .lg-field {
   border-radius: 10px;
-  background: rgb(0 0 0 / 0.25);
-  color: white;
+  background: var(--well);
+  color: var(--ink);
   outline: none;
-  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.45), 0 1px 0 rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 1px 3px var(--well-shadow), 0 1px 0 rgb(255 255 255 / 0.12);
   transition: box-shadow 0.15s;
 }
-.lg-field:focus { box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.45), 0 0 0 2px rgb(255 255 255 / 0.4); }
-.lg-field::placeholder { color: rgb(255 255 255 / 0.4); }
-.lg-field option { background: #1c1c22; }
+.lg-field:focus { box-shadow: inset 0 1px 3px var(--well-shadow), 0 0 0 2px color-mix(in srgb, var(--ink) 35%, transparent); }
+.lg-field::placeholder { color: color-mix(in srgb, var(--ink) 40%, transparent); }
+.lg-field option { background: var(--menu); color: var(--ink); }
 
 /* iOS switch. */
 .lg-switch {
@@ -107,7 +141,7 @@ html.glass-window, html.glass-window body {
   height: 1.55rem;
   border-radius: 999px;
   cursor: pointer;
-  background: rgb(255 255 255 / 0.18);
+  background: var(--off);
   transition: background 0.2s;
 }
 .lg-switch::after {
@@ -122,7 +156,7 @@ html.glass-window, html.glass-window body {
   box-shadow: 0 2px 4px rgb(0 0 0 / 0.3);
   transition: transform 0.2s;
 }
-.lg-switch:checked { background: #34c759; }
+.lg-switch:checked { background: var(--ok); }
 .lg-switch:checked::after { transform: translateX(1.05rem); }
 
 /* Slider: hairline track, white knob. */
@@ -130,7 +164,7 @@ html.glass-window, html.glass-window body {
   appearance: none;
   height: 4px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.22);
+  background: var(--off);
   cursor: pointer;
 }
 .lg-range::-webkit-slider-thumb {
@@ -143,11 +177,11 @@ html.glass-window, html.glass-window body {
 }
 
 .lg-switch:focus-visible, .lg-range:focus-visible, .lg-btn:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.6);
+  outline: 2px solid color-mix(in srgb, var(--ink) 55%, transparent);
   outline-offset: 2px;
 }
 
-.lg-scroll { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.25) transparent; }
+.lg-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 25%, transparent) transparent; }
 
 /* Widget: controls appear on hover; children are click-through so the whole
    note is a drag handle (data-tauri-drag-region only fires on the tagged element). */

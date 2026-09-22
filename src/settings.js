@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { applyTheme } from "./theme.js";
 
 const TOOLS = [
   ["claude", "Claude Code", "Sign in to Claude Code with a Pro or Max plan. Shows your exact 5-hour and weekly limits."],
@@ -18,8 +19,8 @@ $("tools").innerHTML = TOOLS.map(([key, name, hint]) => `
     </label>
     <input data-key="${key}" data-field="dir" spellcheck="false" placeholder="Folder (auto-detect)"
       class="lg-field w-full px-2.5 py-1.5 font-mono text-[11px] placeholder:font-sans" />
-    <p class="text-[11px] leading-relaxed text-white/45">${hint}</p>
-    <p id="path-${key}" class="truncate font-mono text-[10px] text-white/35"></p>
+    <p class="text-[11px] leading-relaxed text-ink/45">${hint}</p>
+    <p id="path-${key}" class="truncate font-mono text-[10px] text-ink/35"></p>
   </div>`).join("");
 
 function showStatus(status) {
@@ -28,7 +29,7 @@ function showStatus(status) {
     const on = settings[key].enabled;
     const badge = $(`st-${key}`);
     badge.textContent = !on ? "Off" : s.found ? "Connected" : "Not found";
-    badge.className = `ml-1 text-[11px] ${!on ? "text-white/40" : s.found ? "text-[#30d158]" : "text-[#ffd60a]"}`;
+    badge.className = `ml-1 text-[11px] ${!on ? "text-ink/40" : s.found ? "text-ok" : "text-warn"}`;
     $(`path-${key}`).textContent = s.path; // textContent: paths are user input
     $(`path-${key}`).title = s.path;
   }
@@ -43,6 +44,8 @@ function fill() {
   }
   $("always_on_top").checked = settings.always_on_top;
   $("show_used").value = settings.show_used ? "used" : "left";
+  $("theme").value = settings.theme;
+  applyTheme(settings.theme);
   $("glass_opacity").value = settings.glass_opacity;
   setGlass(settings.glass_opacity);
   $("blur").checked = settings.blur;
@@ -56,6 +59,8 @@ async function save() {
   }
   settings.always_on_top = $("always_on_top").checked;
   settings.show_used = $("show_used").value === "used";
+  settings.theme = $("theme").value;
+  applyTheme(settings.theme);
   settings.glass_opacity = Number($("glass_opacity").value);
   settings.blur = $("blur").checked;
   settings.claude_refresh_min = Math.min(60, Math.max(1, Math.round(Number($("refresh").value) || 5)));

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { applyTheme } from "./theme.js";
 
 const ROWS = [
   ["claude", "Claude Code", "#d97757"],
@@ -26,21 +27,21 @@ function bar(label, l) {
   if (!l) return "";
   const p = left(l);
   const shown = showUsed ? 100 - p : p;
-  const color = p > 50 ? "#30d158" : p > 20 ? "#ffd60a" : "#ff453a"; // colour always tracks what's left
+  const color = p > 50 ? "var(--ok)" : p > 20 ? "var(--warn)" : "var(--bad)"; // colour always tracks what's left
   const reset = until(l.resets_at);
   return `<div class="flex items-center gap-2.5 text-[0.6875rem]">
-    <span class="w-7 text-white/55">${label}</span>
+    <span class="w-7 text-ink/55">${label}</span>
     <div class="lg-track h-2 flex-1 p-px">
       <div class="lg-fill h-full" style="width:${shown}%;--c:${color}"></div>
     </div>
-    <span class="w-[6rem] whitespace-nowrap text-right tabular-nums"><span class="font-medium">${Math.round(shown)}%</span><span class="text-white/50"> ${showUsed ? "used" : "left"}</span>${reset ? `<span class="text-white/50"> · ${reset}</span>` : ""}</span>
+    <span class="w-[6rem] whitespace-nowrap text-right tabular-nums"><span class="font-medium">${Math.round(shown)}%</span><span class="text-ink/50"> ${showUsed ? "used" : "left"}</span>${reset ? `<span class="text-ink/50"> · ${reset}</span>` : ""}</span>
   </div>`;
 }
 
 function body(r) {
-  if (r.status) return `<div class="text-[0.6875rem] text-white/55">${r.status}</div>`;
+  if (r.status) return `<div class="text-[0.6875rem] text-ink/55">${r.status}</div>`;
   if (r.five_hour || r.weekly) return bar("5h", r.five_hour) + bar("wk", r.weekly);
-  return `<div class="text-[0.6875rem] tabular-nums text-white/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-white/50">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-white/50">in 24h</span></div>`;
+  return `<div class="text-[0.6875rem] tabular-nums text-ink/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-ink/50">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-ink/50">in 24h</span></div>`;
 }
 
 // Scale everything together: measure the content at 16px/rem, then pick the largest
@@ -66,15 +67,16 @@ function render(snap) {
         </div>
         ${body(snap[key])}
       </li>`).join("")
-    : `<li class="lg-card flex flex-col items-start gap-2 px-3 py-2.5 text-[0.6875rem] text-white/75">
+    : `<li class="lg-card flex flex-col items-start gap-2 px-3 py-2.5 text-[0.6875rem] text-ink/75">
         No tools connected yet.
-        <button data-open-settings class="lg-btn px-3 py-0.5 text-white">Open settings</button>
+        <button data-open-settings class="lg-btn px-3 py-0.5 text-ink">Open settings</button>
       </li>`;
   fit();
 }
 
 function applySettings(s) {
   showUsed = s.show_used;
+  applyTheme(s.theme);
   document.documentElement.style.setProperty("--glass", s.glass_opacity / 100); // tints the glass only; text stays sharp
   if (last) render(last);
 }

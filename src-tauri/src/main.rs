@@ -38,6 +38,7 @@ struct Settings {
     show_used: bool,   // bars show "% used" instead of "% left"
     glass_opacity: u8,  // tint of the glass, 0 (clear) - 100; text stays sharp
     blur: bool,         // frosted blur behind the windows
+    theme: String,      // "system" (follow the OS), "dark" or "light"
 }
 
 impl Default for Settings {
@@ -51,6 +52,7 @@ impl Default for Settings {
             show_used: false,
             glass_opacity: 55,
             blur: false,
+            theme: "system".into(),
         }
     }
 }
@@ -530,6 +532,9 @@ async fn get_status(app: AppHandle) -> Status {
 async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Status, String> {
     settings.claude_refresh_min = settings.claude_refresh_min.clamp(1, 60);
     settings.glass_opacity = settings.glass_opacity.min(100);
+    if !["system", "dark", "light"].contains(&settings.theme.as_str()) {
+        settings.theme = "system".into();
+    }
     let path = settings_path(&app).ok_or("no config folder")?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -653,6 +658,7 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"codex":{"enabled":false},"gemini":{"dir":"~/g"}}"#).unwrap();
         assert!(s.claude.enabled && !s.codex.enabled && s.gemini.enabled);
         assert_eq!(s.claude_refresh_min, 5);
+        assert_eq!(s.theme, "system");
         let d = Dirs::from(&s);
         assert_eq!(d.gemini, home().join("g"));
         assert_eq!(d.codex_logs(), resolve(&s.codex, Some("CODEX_HOME"), ".codex").join("sessions"));

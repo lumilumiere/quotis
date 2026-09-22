@@ -16,25 +16,33 @@
 
       <main class="lg-scroll flex-1 space-y-5 overflow-y-auto px-4 pb-5">
         <section class="space-y-1.5">
-          <h2 class="px-3 text-[11px] uppercase tracking-wider text-white/50">Connections</h2>
+          <h2 class="px-3 text-[11px] uppercase tracking-wider text-ink/50">Connections</h2>
           <div id="tools" class="lg-group"></div>
-          <p class="px-3 text-[11px] leading-relaxed text-white/45">
+          <p class="px-3 text-[11px] leading-relaxed text-ink/45">
             Leave a folder empty to auto-detect it. Tools that are off or not found are hidden from the widget.
           </p>
         </section>
 
         <section class="space-y-1.5">
-          <h2 class="px-3 text-[11px] uppercase tracking-wider text-white/50">Appearance</h2>
+          <h2 class="px-3 text-[11px] uppercase tracking-wider text-ink/50">Appearance</h2>
           <div class="lg-group">
+            <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
+              Theme
+              <select id="theme" class="lg-field px-2.5 py-1">
+                <option value="system">System</option>
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </label>
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
               Glass opacity
               <span class="flex items-center gap-2.5">
                 <input id="glass_opacity" type="range" min="0" max="100" class="lg-range w-28" />
-                <output id="glass_out" class="w-9 text-right tabular-nums text-white/60"></output>
+                <output id="glass_out" class="w-9 text-right tabular-nums text-ink/60"></output>
               </span>
             </label>
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
-              <span>Frosted blur <span class="block text-[11px] text-white/45">Adds a light frost; off is fully clear.</span></span>
+              <span>Frosted blur <span class="block text-[11px] text-ink/45">Adds a light frost; off is fully clear.</span></span>
               <input id="blur" type="checkbox" class="lg-switch" />
             </label>
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
@@ -52,23 +60,23 @@
         </section>
 
         <section class="space-y-1.5">
-          <h2 class="px-3 text-[11px] uppercase tracking-wider text-white/50">Refresh</h2>
+          <h2 class="px-3 text-[11px] uppercase tracking-wider text-ink/50">Refresh</h2>
           <div class="lg-group">
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
               Check Claude every
-              <span class="flex items-center gap-2 text-white/60">
-                <input id="refresh" type="number" min="1" max="60" class="lg-field w-14 px-2 py-1 text-right text-white" />
+              <span class="flex items-center gap-2 text-ink/60">
+                <input id="refresh" type="number" min="1" max="60" class="lg-field w-14 px-2 py-1 text-right text-ink" />
                 min
               </span>
             </label>
           </div>
-          <p class="px-3 text-[11px] leading-relaxed text-white/45">
+          <p class="px-3 text-[11px] leading-relaxed text-ink/45">
             Codex and Gemini update instantly. Nothing is uploaded: the only request is Claude's limit check to
             api.anthropic.com, using your Claude Code login.
           </p>
         </section>
 
-        <p id="saved" class="h-4 px-3 text-[11px] text-[#30d158]"></p>
+        <p id="saved" class="h-4 px-3 text-[11px] text-ok"></p>
       </main>
     </div>
     <script type="module" src="/src/settings.js"></script>
