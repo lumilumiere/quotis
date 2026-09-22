@@ -29,12 +29,12 @@ function showStatus(status) {
     const badge = $(`st-${key}`);
     badge.textContent = !on ? "Off" : s.found ? "Connected" : "Not found";
     badge.className = `ml-1 text-[11px] ${!on ? "text-ink/40" : s.found ? "text-ok" : "text-warn"}`;
-    $(`path-${key}`).textContent = s.path; // textContent: paths are user input
+    $(`path-${key}`).textContent = s.path;
     $(`path-${key}`).title = s.path;
   }
 }
 
-const setGlass = (pct) => ($("glass_out").value = `${pct}%`); // the widget previews it live
+const setGlass = (pct) => ($("glass_out").value = `${pct}%`);
 
 function fill() {
   for (const el of document.querySelectorAll("[data-key]")) {
@@ -70,9 +70,8 @@ async function save() {
   flash = setTimeout(() => ($("saved").textContent = ""), 1500);
 }
 
-// "change" fires once per edit (on blur/Enter for text, on release for the slider), so each save is one write.
 document.addEventListener("change", save);
-// While dragging the slider, preview the glass live in both windows without saving.
+
 $("glass_opacity").addEventListener("input", () => {
   const pct = Number($("glass_opacity").value);
   setGlass(pct);

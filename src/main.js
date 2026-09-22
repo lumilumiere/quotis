@@ -12,7 +12,6 @@ const list = document.getElementById("list");
 let last = null;
 let showUsed = false;
 
-// % of the window still available; a window whose reset time has passed is full again.
 const left = (l) => (Date.now() / 1000 >= l.resets_at && l.resets_at > 0 ? 100 : Math.max(0, 100 - l.used_percent));
 
 function until(ts) {
@@ -26,7 +25,7 @@ function bar(label, l) {
   if (!l) return "";
   const p = left(l);
   const shown = showUsed ? 100 - p : p;
-  const color = p > 50 ? "var(--ok)" : p > 20 ? "var(--warn)" : "var(--bad)"; // colour always tracks what's left
+  const color = p > 50 ? "var(--ok)" : p > 20 ? "var(--warn)" : "var(--bad)";
   const reset = until(l.resets_at);
   return `<div class="flex items-center gap-2.5 text-[0.6875rem]">
     <span class="w-7 text-ink/70">${label}</span>
@@ -43,31 +42,24 @@ function body(r) {
   return `<div class="text-[0.6875rem] tabular-nums text-ink/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-ink/70">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-ink/70">in 24h</span></div>`;
 }
 
-// Scale everything together: measure the content at 16px/rem, then pick the largest
-// rem at which it fits both the window's height and a 270px-wide design width.
 const BASE_W = 270;
 const fitBox = document.getElementById("fit");
 function fit() {
   const root = document.documentElement.style;
   root.fontSize = "16px";
-  if (!innerWidth || !innerHeight) return; // minimized / hidden: keep the base size
+  if (!innerWidth || !innerHeight) return;
   const scale = Math.min(innerWidth / BASE_W, innerHeight / fitBox.offsetHeight);
   root.fontSize = `${16 * scale}px`;
-  drawBackdrop(); // tiles moved or resized
+  drawBackdrop();
 }
 addEventListener("resize", fit);
 
-// ---------- Real blur ----------
-// The backend sends a tiny copy of the screen behind the widget (~5x/s, only when it changes).
-// Each [data-glass] tile gets that image blurred and brightened like iOS glass, plus just enough
-// darkening under each card for its white text to stay readable.
 const canvas = document.getElementById("backdrop");
 const small = document.createElement("canvas");
-let frame = null; // { w, h, px }
+let frame = null;
 let realBlur = false;
 let glass = 0.55;
 
-/** Mean brightness (0-1, sRGB) of the frame inside a rectangle given in window fractions. */
 function brightness(fx0, fy0, fx1, fy1) {
   const { w, h, px } = frame;
   const x0 = Math.max(0, Math.floor(fx0 * w)), x1 = Math.min(w, Math.ceil(fx1 * w));
@@ -82,23 +74,22 @@ function brightness(fx0, fy0, fx1, fy1) {
   return n ? sum / n / 255 : 0.5;
 }
 
-const next = document.createElement("canvas"); // the glass for the newest frame
-const prev = document.createElement("canvas"); // what was on screen when it arrived
+const next = document.createElement("canvas");
+const prev = document.createElement("canvas");
 const FADE_MS = 280;
 let fadeStart = 0;
 
-/** Draws the glass for the current frame. With `fade`, crossfades from what is on screen. */
 function drawBackdrop(fade = false) {
   const root = document.documentElement;
   root.classList.toggle("real-blur", realBlur && !!frame);
   if (!realBlur || !frame || !innerWidth) return;
-  const k = devicePixelRatio / 2; // half resolution is plenty under a blur
+  const k = devicePixelRatio / 2;
   const cw = Math.round(innerWidth * k), ch = Math.round(innerHeight * k);
   const sizeChanged = canvas.width !== cw || canvas.height !== ch;
   if (fade && !sizeChanged) {
     prev.width = cw;
     prev.height = ch;
-    prev.getContext("2d").drawImage(canvas, 0, 0); // mid-fade too: start from what is visible
+    prev.getContext("2d").drawImage(canvas, 0, 0);
   }
   composeGlass(next, cw, ch, k);
   if (sizeChanged) {
@@ -118,7 +109,7 @@ function drawBackdrop(fade = false) {
 function fadeStep(now) {
   if (!fadeStart) return;
   const t = Math.min(1, (now - fadeStart) / FADE_MS);
-  const eased = t * t * (3 - 2 * t); // smoothstep
+  const eased = t * t * (3 - 2 * t);
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.globalAlpha = 1;
@@ -135,10 +126,10 @@ function composeGlass(target, cw, ch, k) {
   small.width = w;
   small.height = h;
   small.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), w, h), 0, 0);
-  target.width = cw; // also clears it
+  target.width = cw;
   target.height = ch;
   const ctx = target.getContext("2d");
-  const canvas = target; // the drawing below targets this canvas
+  const canvas = target;
   const shape = (el) => {
     const r = el.getBoundingClientRect();
     const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
@@ -147,21 +138,18 @@ function composeGlass(target, cw, ch, k) {
     return r;
   };
 
-  // 1. The whole panel is glass: the blurred, brightened screen behind it, plus a base smoke.
   ctx.save();
   shape(document.querySelector("main"));
   ctx.clip();
-  const o = 40 * k; // overscan so the blur does not fade in from the edges
+  const o = 40 * k;
   ctx.filter = `blur(${22 * k}px) saturate(1.8) brightness(1.08)`;
   ctx.drawImage(small, -o, -o, canvas.width + 2 * o, canvas.height + 2 * o);
   ctx.filter = "none";
-  const base = glass * 0.2; // Glass opacity adds a little smoke
+  const base = glass * 0.2;
   ctx.fillStyle = `rgba(0,0,0,${base})`;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.restore();
 
-  // 2. Contrast guard under each card: darken only as much as its white text needs there
-  //    (never a white tint). Brightness under text must stay <= 0.45, about 5:1 contrast.
   for (const el of document.querySelectorAll("[data-glass]")) {
     const r = el.getBoundingClientRect();
     const b = Math.min(1, brightness(r.x / innerWidth, r.y / innerHeight, r.right / innerWidth, r.bottom / innerHeight) * 1.08) * (1 - base);
@@ -180,7 +168,7 @@ listen("backdrop", (e) => {
 
 function render(snap) {
   last = snap;
-  const rows = ROWS.filter(([key]) => snap[key].connected); // tools that are off or not found stay hidden
+  const rows = ROWS.filter(([key]) => snap[key].connected);
   list.innerHTML = rows.length
     ? rows.map(([key, name, color]) => `<li data-glass class="lg-card flex flex-col gap-1.5 px-3 py-2.5">
         <div class="flex items-center gap-1.5 text-xs font-semibold">
@@ -197,10 +185,10 @@ function render(snap) {
 
 function applySettings(s) {
   showUsed = s.show_used;
-  document.documentElement.style.setProperty("--glass", s.glass_opacity / 100); // tints the glass only; text stays sharp
+  document.documentElement.style.setProperty("--glass", s.glass_opacity / 100);
   glass = s.glass_opacity / 100;
   realBlur = s.blur;
-  if (!realBlur) frame = null; // fall back to the frosted tiles
+  if (!realBlur) frame = null;
   if (last) render(last);
   else drawBackdrop();
 }
@@ -209,10 +197,10 @@ const openSettings = () => invoke("open_settings");
 document.addEventListener("click", (e) => e.target.closest("[data-open-settings]") && openSettings());
 
 invoke("get_settings").then(applySettings);
-invoke("get_usage").then(render); // pulls the state on load, so no emits are missed before the listener is ready
+invoke("get_usage").then(render);
 listen("usage", (e) => render(e.payload));
 listen("settings", (e) => applySettings(e.payload));
-setInterval(() => last && render(last), 30_000); // keep reset countdowns ticking
+setInterval(() => last && render(last), 30_000);
 document.getElementById("close").onclick = () => getCurrentWindow().close();
 document.getElementById("grip").onmousedown = (e) => {
   e.preventDefault();

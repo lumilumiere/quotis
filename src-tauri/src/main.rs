@@ -1,4 +1,4 @@
-// No console window behind the widget in release builds on Windows.
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -12,13 +12,11 @@ use tauri::utils::config::WindowEffectsConfig;
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 
-// ---------- Settings ----------
-
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct ProviderCfg {
     enabled: bool,
-    dir: String, // tool's home folder; empty = auto-detect
+    dir: String,
 }
 
 impl Default for ProviderCfg {
@@ -33,11 +31,11 @@ struct Settings {
     claude: ProviderCfg,
     codex: ProviderCfg,
     gemini: ProviderCfg,
-    claude_refresh_min: u64, // 1-60
+    claude_refresh_min: u64,
     always_on_top: bool,
-    show_used: bool,   // bars show "% used" instead of "% left"
-    glass_opacity: u8,  // tint of the glass, 0 (clear) - 100; text stays sharp
-    blur: bool,         // real blur of what is behind the widget (see "Real blur on Windows")
+    show_used: bool,
+    glass_opacity: u8,
+    blur: bool,
 }
 
 impl Default for Settings {
@@ -66,13 +64,11 @@ fn load_settings(app: &AppHandle) -> Settings {
         .unwrap_or_default()
 }
 
-// ---------- Where each tool keeps its files ----------
-
 #[derive(Clone)]
 struct Dirs {
-    claude: PathBuf, // ~/.claude  (or $CLAUDE_CONFIG_DIR)
-    codex: PathBuf,  // ~/.codex   (or $CODEX_HOME)
-    gemini: PathBuf, // ~/.gemini
+    claude: PathBuf,
+    codex: PathBuf,
+    gemini: PathBuf,
 }
 
 fn home() -> PathBuf {
@@ -125,22 +121,20 @@ fn detect(d: &Dirs) -> Status {
     }
 }
 
-// ---------- Snapshot sent to the widget ----------
-
 #[derive(Clone, Serialize)]
 struct Limit {
     used_percent: f64,
-    resets_at: i64, // unix seconds
+    resets_at: i64,
 }
 
 #[derive(Clone, Serialize, Default)]
 struct Row {
-    connected: bool, // false = hidden in the widget
+    connected: bool,
     five_hour: Option<Limit>,
     weekly: Option<Limit>,
     tokens_5h: Option<u64>,
     tokens_24h: Option<u64>,
-    status: Option<String>, // shown instead of data ("offline", "login expired", ...)
+    status: Option<String>,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -154,10 +148,10 @@ struct State {
     settings: Settings,
     dirs: Dirs,
     snap: Snapshot,
-    gemini_files: HashMap<PathBuf, Vec<(i64, u64)>>, // (timestamp, tokens) per message
+    gemini_files: HashMap<PathBuf, Vec<(i64, u64)>>,
     claude_dirty: bool,
     last_poll: Option<Instant>,
-    claude_backoff: u64, // seconds to wait after a 429; 0 = normal schedule
+    claude_backoff: u64,
     watcher: RecommendedWatcher,
     watched: Vec<PathBuf>,
 }
@@ -168,12 +162,11 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
-/// "2026-09-22T09:38:12.345Z" or "...+00:00" -> unix seconds. Assumes UTC, which all three tools write.
 fn parse_ts(s: &str) -> Option<i64> {
     let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
     let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
     let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
-    // days_from_civil (Howard Hinnant)
+
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
@@ -193,9 +186,6 @@ fn is_jsonl(p: &Path) -> bool {
     p.extension().is_some_and(|e| e == "jsonl")
 }
 
-// ---------- Claude Code: exact limits from Anthropic (same endpoint as Claude Code's /usage) ----------
-
-/// Claude Code's OAuth login: a file on Windows/Linux, the Keychain on macOS.
 fn claude_credentials(root: &Path) -> Option<Value> {
     let text = std::fs::read_to_string(root.join(".credentials.json")).ok().or_else(keychain)?;
     let v: Value = serde_json::from_str(&text).ok()?;
@@ -217,9 +207,9 @@ fn keychain() -> Option<String> {
 }
 
 enum ClaudeErr {
-    NotSignedIn,             // hide the row
-    Expired,                 // tell the user to open Claude Code
-    RateLimited(Option<u64>), // back off (Retry-After seconds, if given)
+    NotSignedIn,
+    Expired,
+    RateLimited(Option<u64>),
     Unavailable(&'static str),
 }
 
@@ -227,7 +217,7 @@ fn fetch_claude(root: &Path) -> Result<Row, ClaudeErr> {
     let creds = claude_credentials(root).ok_or(ClaudeErr::NotSignedIn)?;
     let oauth = &creds["claudeAiOauth"];
     let token = oauth.get("accessToken").and_then(Value::as_str).ok_or(ClaudeErr::NotSignedIn)?;
-    // Claude Code refreshes the token whenever it runs; we only read it.
+
     if oauth.get("expiresAt").and_then(Value::as_i64).is_some_and(|ms| ms / 1000 < now()) {
         return Err(ClaudeErr::Expired);
     }
@@ -281,14 +271,13 @@ fn poll_claude(app: &AppHandle) {
         }
         s.dirs.claude.clone()
     };
-    let result = fetch_claude(&root); // network call, made outside the lock
+    let result = fetch_claude(&root);
     {
         let state = app.state::<Shared>();
         let mut s = state.lock().unwrap();
         s.last_poll = Some(Instant::now());
         s.claude_dirty = false;
         if s.settings.claude.enabled && s.dirs.claude == root {
-            // settings may have changed during the request
             let has_data = s.snap.claude.five_hour.is_some() || s.snap.claude.weekly.is_some();
             let problem = |msg: &str| Row { connected: true, status: Some(msg.into()), ..Default::default() };
             match result {
@@ -298,7 +287,7 @@ fn poll_claude(app: &AppHandle) {
                 }
                 Err(ClaudeErr::NotSignedIn) => s.snap.claude = Row::default(),
                 Err(ClaudeErr::Expired) => s.snap.claude = problem("login expired, open Claude Code"),
-                // Temporary failures keep the last good numbers on screen.
+
                 Err(ClaudeErr::RateLimited(retry)) => {
                     s.claude_backoff = retry.unwrap_or((s.claude_backoff * 2).max(300)).min(3600);
                     if !has_data {
@@ -316,8 +305,6 @@ fn poll_claude(app: &AppHandle) {
     emit(app);
 }
 
-// ---------- Codex: exact limits written locally in rollout JSONL ----------
-
 fn codex_row(logs: &Path) -> Row {
     let mut files = Vec::new();
     walk(logs, &mut files);
@@ -333,7 +320,6 @@ fn codex_row(logs: &Path) -> Row {
     row
 }
 
-/// Last `payload.rate_limits` in the file: primary = 5h window, secondary = weekly.
 fn parse_codex_limits(text: &str) -> Option<Row> {
     let line = text.lines().rev().find(|l| l.contains("\"rate_limits\""))?;
     let v: Value = serde_json::from_str(line).ok()?;
@@ -344,8 +330,6 @@ fn parse_codex_limits(text: &str) -> Option<Row> {
     };
     Some(Row { five_hour: lim("primary"), weekly: lim("secondary"), ..Default::default() })
 }
-
-// ---------- Gemini CLI: token counts only (no quota info is stored locally) ----------
 
 fn gemini_entries(path: &Path) -> Vec<(i64, u64)> {
     let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
@@ -358,7 +342,6 @@ fn gemini_entries(path: &Path) -> Vec<(i64, u64)> {
         .collect()
 }
 
-/// Only logs touched in the last day can hold tokens inside the 24h window.
 fn scan_gemini(logs: &Path) -> HashMap<PathBuf, Vec<(i64, u64)>> {
     let mut files = Vec::new();
     walk(logs, &mut files);
@@ -372,8 +355,6 @@ fn scan_gemini(logs: &Path) -> HashMap<PathBuf, Vec<(i64, u64)>> {
         })
         .collect()
 }
-
-// ---------- Plumbing ----------
 
 fn emit(app: &AppHandle) {
     let snap = {
@@ -393,8 +374,6 @@ fn emit(app: &AppHandle) {
     let _ = app.emit("usage", snap);
 }
 
-/// (Re)applies settings: watches enabled tools' log folders and rescans them. Claude is
-/// only re-polled when asked (startup, or its own settings changed), to spare its rate limit.
 fn apply(app: &AppHandle, poll_claude_now: bool) {
     {
         let state = app.state::<Shared>();
@@ -420,7 +399,7 @@ fn apply(app: &AppHandle, poll_claude_now: bool) {
                 Err(e) => eprintln!("watch {}: {e}", dir.display()),
             }
         }
-        // Claude stays hidden until a poll confirms a login.
+
         if poll_claude_now || !s.settings.claude.enabled {
             s.snap.claude = Row::default();
         }
@@ -446,7 +425,6 @@ fn apply(app: &AppHandle, poll_claude_now: bool) {
 
 fn spawn_event_loop(app: AppHandle, rx: mpsc::Receiver<notify::Result<notify::Event>>) {
     std::thread::spawn(move || {
-        // Debounce: CLIs append many lines per second; batch changes for 300ms.
         while let Ok(first) = rx.recv() {
             let mut changed = Vec::new();
             let mut take = |res: notify::Result<notify::Event>| if let Ok(ev) = res { changed.extend(ev.paths) };
@@ -468,7 +446,7 @@ fn spawn_event_loop(app: AppHandle, rx: mpsc::Receiver<notify::Result<notify::Ev
             let state = app.state::<Shared>();
             let mut s = state.lock().unwrap();
             if changed.iter().any(|p| p.starts_with(&claude_logs)) {
-                s.claude_dirty = true; // re-poll Anthropic soon (see spawn_ticker)
+                s.claude_dirty = true;
             }
             if let Some(row) = codex.filter(|_| s.snap.codex.connected) {
                 s.snap.codex = row;
@@ -482,8 +460,6 @@ fn spawn_event_loop(app: AppHandle, rx: mpsc::Receiver<notify::Result<notify::Ev
     });
 }
 
-/// Polls Claude on the user's interval (sooner, but at most every 2 min, while Claude Code
-/// is writing logs; later after a 429) and re-emits every 15s so time windows slide forward.
 fn spawn_ticker(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(15));
@@ -505,8 +481,6 @@ fn spawn_ticker(app: AppHandle) {
         }
     });
 }
-
-// ---------- Commands ----------
 
 #[tauri::command]
 fn get_usage(state: tauri::State<'_, Shared>) -> Snapshot {
@@ -548,17 +522,11 @@ async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Status,
     Ok(detect(&dirs))
 }
 
-// ---------- Real blur on Windows ----------
-// Windows has no usable blur-behind for transparent windows (its "blur" effect renders black on
-// Windows 11 24H2+, and acrylic is an opaque grey). So the widget briefly excludes itself from screen
-// capture, grabs a tiny downscaled copy of the screen behind it, and the page blurs that
-// inside each glass tile. Frames never leave the process.
-
 #[derive(Clone, Serialize)]
 struct Backdrop {
     w: i32,
     h: i32,
-    px: Vec<u8>, // RGBA, row-major, top-down
+    px: Vec<u8>,
 }
 
 #[cfg(windows)]
@@ -570,10 +538,8 @@ mod backdrop {
     use windows_sys::Win32::Graphics::Gdi::*;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-    /// Width of the grabbed copy; the blur hides the missing detail.
     const W: i32 = 64;
 
-    /// Hides the window from screen capture (screenshots, recordings, sharing, our own grab).
     pub fn exclude_from_capture(hwnd: HWND, on: bool) {
         unsafe { SetWindowDisplayAffinity(hwnd, if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) };
     }
@@ -584,7 +550,6 @@ mod backdrop {
         ok.then_some(r)
     }
 
-    /// A screen area (x, y, sw × sh) downscaled to w × h, as RGBA.
     fn sample(x: i32, y: i32, sw: i32, sh: i32, w: i32, h: i32) -> Option<Vec<u8>> {
         unsafe {
             let screen = GetDC(null_mut());
@@ -593,12 +558,12 @@ mod backdrop {
             let old = SelectObject(mem, bmp);
             SetStretchBltMode(mem, HALFTONE);
             let copied = StretchBlt(mem, 0, 0, w, h, screen, x, y, sw, sh, SRCCOPY) != 0;
-            SelectObject(mem, old); // GetDIBits needs the bitmap deselected
+            SelectObject(mem, old);
 
             let mut info: BITMAPINFO = zeroed();
             info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
             info.bmiHeader.biWidth = w;
-            info.bmiHeader.biHeight = -h; // negative = top-down rows
+            info.bmiHeader.biHeight = -h;
             info.bmiHeader.biPlanes = 1;
             info.bmiHeader.biBitCount = 32;
             info.bmiHeader.biCompression = BI_RGB;
@@ -612,31 +577,27 @@ mod backdrop {
                 return None;
             }
             for p in px.chunks_exact_mut(4) {
-                p.swap(0, 2); // BGRA -> RGBA
+                p.swap(0, 2);
                 p[3] = 255;
             }
             Some(px)
         }
     }
 
-    /// The screen under the window, downscaled to W pixels wide. The caller must have the
-    /// window excluded from capture, or the grab would contain the widget itself.
     pub fn grab(r: &RECT) -> Option<Backdrop> {
         let (sw, sh) = (r.right - r.left, r.bottom - r.top);
         let h = (W * sh / sw).max(1);
         sample(r.left, r.top, sw, sh, W, h).map(|px| Backdrop { w: W, h, px })
     }
 
-    /// A thin ring of screen just outside the window: it never contains the widget, so it can be
-    /// read at any time, and it changes whenever what is behind the widget likely changed.
     pub fn ring(r: &RECT) -> Vec<u8> {
-        const M: i32 = 6; // ring thickness in pixels
+        const M: i32 = 6;
         let (w, h) = (r.right - r.left, r.bottom - r.top);
         [
-            sample(r.left - M, r.top - M, w + 2 * M, M, 24, 1),  // above
-            sample(r.left - M, r.bottom, w + 2 * M, M, 24, 1),   // below
-            sample(r.left - M, r.top, M, h, 1, 24),              // left
-            sample(r.right, r.top, M, h, 1, 24),                 // right
+            sample(r.left - M, r.top - M, w + 2 * M, M, 24, 1),
+            sample(r.left - M, r.bottom, w + 2 * M, M, 24, 1),
+            sample(r.left - M, r.top, M, h, 1, 24),
+            sample(r.right, r.top, M, h, 1, 24),
         ]
         .into_iter()
         .flatten()
@@ -645,19 +606,13 @@ mod backdrop {
     }
 }
 
-/// Sends the backdrop behind the widget to the page while real blur is on.
-///
-/// Every 50 ms it reads a thin ring of screen just outside the widget (no hiding needed). When the
-/// ring changes (scrolling, window switches, video), or the widget moves, or a second has passed,
-/// it grabs the area behind the widget. Only for that grab is the widget hidden from capture
-/// (SETTLE + a few ms), so screenshots, recordings and screen sharing include it otherwise.
 #[cfg(windows)]
 fn spawn_backdrop(app: AppHandle) {
     use std::hash::{Hash, Hasher};
-    /// How long Windows needs to drop the widget from the next composed screen frame.
+
     const SETTLE: Duration = Duration::from_millis(50);
-    const EVERY: Duration = Duration::from_secs(1); // safety refresh
-    const MIN_GAP: Duration = Duration::from_millis(200); // caps grabs at 5/s while things change
+    const EVERY: Duration = Duration::from_secs(1);
+    const MIN_GAP: Duration = Duration::from_millis(200);
     let hash = |bytes: &[u8]| {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut h);
@@ -703,8 +658,6 @@ fn spawn_backdrop(app: AppHandle) {
     });
 }
 
-/// Native blur behind a window where the OS provides a good one: vibrancy on macOS.
-/// (Windows uses the captured backdrop above instead.)
 fn glass_effects(blur: bool) -> Option<WindowEffectsConfig> {
     blur.then(|| {
         EffectsBuilder::new()
@@ -715,7 +668,6 @@ fn glass_effects(blur: bool) -> Option<WindowEffectsConfig> {
     })
 }
 
-// Async: building a window inside a sync command deadlocks on Windows.
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("settings") {
@@ -727,10 +679,10 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         .title("Quotis Settings")
         .inner_size(400.0, 640.0)
         .min_inner_size(340.0, 420.0)
-        .decorations(false) // glass panel with its own title bar
+        .decorations(false)
         .transparent(true)
-        .shadow(false) // a transparent window's shadow is just a grey outline around its corners
-        .always_on_top(true); // otherwise it can open behind the pinned widget
+        .shadow(false)
+        .always_on_top(true);
     if let Some(fx) = glass_effects(blur).filter(|_| cfg!(target_os = "macos")) {
         builder = builder.effects(fx);
     }
@@ -741,7 +693,6 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_usage, get_settings, get_status, save_settings, open_settings])
         .on_window_event(|window, event| {
-            // Closing the widget quits the app, even if the settings window is still open.
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 window.app_handle().exit(0);
             }
@@ -813,7 +764,6 @@ mod tests {
         assert_eq!(d.codex_logs(), resolve(&s.codex, Some("CODEX_HOME"), ".codex").join("sessions"));
     }
 
-    /// Hits the real endpoint with your Claude Code login: cargo test live -- --ignored --nocapture
     #[test]
     #[ignore]
     fn live_claude() {

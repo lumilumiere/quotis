@@ -1,19 +1,12 @@
 @import "tailwindcss";
 
-/* ---------- Liquid Glass ----------
-   Windows are transparent; only glass is painted. Its tint comes from Settings → Glass
-   opacity (--glass). Text never fades and carries a soft shadow so it stays readable over
-   light and dark backgrounds alike. */
-
-/* Colour tokens, usable as Tailwind colours (text-ink, text-ok, ...). */
 @theme inline {
   --color-ink: var(--ink);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
 }
-/* Rich glass with white text and white bars, never a white tint. It adapts to what is behind
-   it: main.js darkens the glass under each card only as much as the white text needs. */
+
 :root {
   --ink: #ffffff;
   --tint: 18 20 28;
@@ -21,7 +14,7 @@
   --warn: #ffd60a;
   --bad: #ff453a;
   --text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
-  --well: rgb(0 0 0 / 0.25); /* sunken glass channel */
+  --well: rgb(0 0 0 / 0.25);
   --well-shadow: rgb(0 0 0 / 0.5);
   --off: rgb(255 255 255 / 0.18);
   --menu: #1c1c22;
@@ -45,8 +38,7 @@ html.glass-window, html.glass-window body {
   color: var(--ink);
   text-shadow: var(--text-shadow);
   isolation: isolate;
-  /* Clear glass: light pooling at the top-left and a faint bounce at the bottom-right.
-     --panel tints it (0 on the widget; Settings sets its own). */
+
   background:
     radial-gradient(140% 90% at 0% 0%, rgb(255 255 255 / 0.16), transparent 50%),
     radial-gradient(100% 80% at 100% 100%, rgb(255 255 255 / 0.06), transparent 60%),
@@ -57,8 +49,6 @@ html.glass-window, html.glass-window body {
     inset 0 0 22px rgb(255 255 255 / 0.06);
 }
 
-/* Specular rim on every glass surface: bright where light lands (top-left, bottom-right),
-   thin along the sides. */
 .lg::before, .lg-card::before, .lg-group::before, .lg-btn::before {
   content: "";
   position: absolute;
@@ -72,8 +62,6 @@ html.glass-window, html.glass-window body {
   mask-composite: exclude;
 }
 
-/* Raised frosted glass card: carries all the text (one per tool in the widget; grouped
-   lists in Settings; the small header pills). */
 .lg-card, .lg-group, .lg-chip {
   position: relative;
   border-radius: 16px;
@@ -100,7 +88,6 @@ html.glass-window, html.glass-window body {
 }
 .lg-group > * + * { border-top: 0.5px solid rgb(255 255 255 / 0.12); }
 
-/* Glass capsule buttons. */
 .lg-btn {
   position: relative;
   border-radius: 999px;
@@ -114,7 +101,6 @@ html.glass-window, html.glass-window body {
   background: linear-gradient(135deg, rgb(255 255 255 / 0.65), rgb(255 255 255 / 0.05) 50%, rgb(255 255 255 / 0.3));
 }
 
-/* Progress bar: a sunken glass channel with a glossy, glowing white liquid fill. */
 .lg-track {
   border-radius: 999px;
   background: var(--well);
@@ -122,13 +108,12 @@ html.glass-window, html.glass-window body {
 }
 .lg-fill {
   border-radius: 999px;
-  /* white liquid fill, iOS style */
+
   background: linear-gradient(180deg, #ffffff, rgb(255 255 255 / 0.82));
   box-shadow: 0 0 8px rgb(255 255 255 / 0.55);
   transition: width 0.5s;
 }
 
-/* Inputs: sunken glass wells, like the bar channels. */
 .lg-field {
   border-radius: 10px;
   background: var(--well);
@@ -141,7 +126,6 @@ html.glass-window, html.glass-window body {
 .lg-field::placeholder { color: color-mix(in srgb, var(--ink) 40%, transparent); }
 .lg-field option { background: var(--menu); color: var(--ink); }
 
-/* iOS switch. */
 .lg-switch {
   appearance: none;
   flex-shrink: 0;
@@ -168,7 +152,6 @@ html.glass-window, html.glass-window body {
 .lg-switch:checked { background: var(--ok); }
 .lg-switch:checked::after { transform: translateX(1.05rem); }
 
-/* Slider: hairline track, white knob. */
 .lg-range {
   appearance: none;
   height: 4px;
@@ -192,26 +175,19 @@ html.glass-window, html.glass-window body {
 
 .lg-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 25%, transparent) transparent; }
 
-/* Widget: controls appear on hover; children are click-through so the whole
-   note is a drag handle (data-tauri-drag-region only fires on the tagged element). */
 html.widget .hover-reveal { opacity: 0; transition: opacity 0.2s; }
 html.widget main:hover .hover-reveal, html.widget main:focus-within .hover-reveal { opacity: 1; }
 html.widget main * { pointer-events: none; }
 html.widget main button { pointer-events: auto; }
 
-/* Settings is a form: its whole panel is frosted so every line stays readable. */
 .settings-panel { --panel: 0.8; }
 
-/* ---------- Real blur ----------
-   main.js paints the blurred screen behind the widget into #backdrop (under the whole panel)
-   and darkens the areas under the cards as much as the white text needs. The rich glass
-   details are drawn above it: highlights and inner glow here, rims via ::before. */
 html.real-blur .lg { background: none; box-shadow: none; }
 html.real-blur .lg::after {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -5; /* above the blurred backdrop, below the content */
+  z-index: -5;
   border-radius: inherit;
   pointer-events: none;
   background:
@@ -222,11 +198,11 @@ html.real-blur .lg::after {
     inset 0 -1px 0 rgb(255 255 255 / 0.1),
     inset 0 0 22px rgb(255 255 255 / 0.06);
 }
-/* Cards and pills sit on the already-blurred panel: clear raised glass, no extra tint. */
+
 html.real-blur .lg-card, html.real-blur .lg-chip {
   background: linear-gradient(180deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.03));
 }
-/* Buttons: clear glass pills over the blurred panel (no dark fill). */
+
 html.real-blur .lg-btn {
   background: linear-gradient(180deg, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0.1));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55), 0 1px 4px rgb(0 0 0 / 0.2);

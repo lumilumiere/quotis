@@ -16,7 +16,7 @@ Tools you don't use, or turn off in Settings, simply don't appear.
 
 ## Install
 
-Download the installer for your system from the [latest release](https://github.com/rjcfajardo/quotis/releases/latest):
+Download the installer for your system from the [latest release](https://github.com/lumilumiere/quotis/releases/latest):
 
 - **Windows**: `.msi` or `-setup.exe`
 - **macOS**: `.dmg` (`aarch64` for Apple Silicon, `x64` for Intel)
@@ -57,7 +57,7 @@ The builds are not code-signed, so your OS will warn you the first time:
 You need [Node.js](https://nodejs.org) 18+, [Rust](https://rustup.rs), and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS (on Windows: the Visual Studio C++ Build Tools).
 
 ```bash
-git clone https://github.com/rjcfajardo/quotis.git
+git clone https://github.com/lumilumiere/quotis.git
 cd quotis
 npm install
 npx tauri dev      # run with hot reload

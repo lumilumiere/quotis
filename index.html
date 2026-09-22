@@ -8,10 +8,9 @@
   </head>
   <body>
     <main data-tauri-drag-region class="lg h-screen w-screen select-none overflow-hidden">
-      <!-- Real blur: main.js paints the blurred screen behind the widget into this canvas, clipped
-           to each [data-glass] tile. The space between tiles stays clear. -->
+
       <canvas id="backdrop" class="pointer-events-none fixed inset-0 -z-10 size-full"></canvas>
-      <!-- All sizes are rem-based; main.js scales the root font-size so this block always fits the window. -->
+
       <div id="fit" class="flex flex-col gap-2 p-2.5">
         <header class="flex h-5 items-center justify-between">
           <span data-glass class="lg-chip px-2.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-ink/75">Quotis</span>
