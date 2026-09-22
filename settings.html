@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quotis Settings</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="min-h-screen bg-[#17171f] text-sm text-white/90 [color-scheme:dark]">
+    <main class="mx-auto max-w-md space-y-6 p-5">
+      <section class="space-y-3">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-white/50">Connections</h2>
+        <p class="text-xs leading-relaxed text-white/50">
+          Each tool is read from its own folder on this computer. Leave the folder empty to auto-detect it.
+          Tools that are turned off or not found are hidden from the widget.
+        </p>
+        <div id="tools" class="space-y-3"></div>
+      </section>
+
+      <section class="space-y-3">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-white/50">Display</h2>
+        <label class="flex items-center justify-between gap-4">
+          Keep widget on top of other windows
+          <input id="always_on_top" type="checkbox" class="size-4 accent-emerald-400" />
+        </label>
+        <label class="flex items-center justify-between gap-4">
+          Bars show
+          <select id="show_used" class="rounded-md border border-white/10 bg-black/30 px-2 py-1">
+            <option value="left">% left</option>
+            <option value="used">% used</option>
+          </select>
+        </label>
+        <label class="flex items-center justify-between gap-4">
+          Opacity
+          <span class="flex items-center gap-2">
+            <input id="opacity" type="range" min="20" max="100" class="w-32 accent-emerald-400" />
+            <output id="opacity_out" class="w-9 text-right tabular-nums text-white/60"></output>
+          </span>
+        </label>
+        <label class="flex items-center justify-between gap-4">
+          <span>
+            Blur behind widget
+            <span class="block text-xs text-white/40">Turn off, with lower opacity, for a see-through widget.</span>
+          </span>
+          <input id="blur" type="checkbox" class="size-4 accent-emerald-400" />
+        </label>
+      </section>
+
+      <section class="space-y-3">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-white/50">Refresh</h2>
+        <label class="flex items-center justify-between gap-4">
+          Check Claude limits every
+          <span class="flex items-center gap-2">
+            <input id="refresh" type="number" min="1" max="60" class="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-right" />
+            minutes
+          </span>
+        </label>
+        <p class="text-xs text-white/40">Codex and Gemini update instantly from their log files.</p>
+      </section>
+
+      <p class="text-xs leading-relaxed text-white/40">
+        Privacy: nothing is uploaded. The only network request is Claude's limit check, sent to api.anthropic.com
+        with your existing Claude Code login. Turn Claude off to stop it.
+      </p>
+      <p id="saved" class="h-4 text-xs text-emerald-400"></p>
+    </main>
+    <script type="module" src="/src/settings.js"></script>
+  </body>
+</html>
