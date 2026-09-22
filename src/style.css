@@ -204,8 +204,8 @@ html.widget main button { pointer-events: auto; }
 
 /* ---------- Real blur ----------
    main.js paints the blurred screen behind the widget into #backdrop (under the whole panel)
-   and darkens the areas under the cards as much as the white text needs. The rich glass sits
-   above it: light pooling and inner glow here, specular rims via ::before. */
+   and darkens the areas under the cards as much as the white text needs. The rich glass
+   details are drawn above it: highlights and inner glow here, rims via ::before. */
 html.real-blur .lg { background: none; box-shadow: none; }
 html.real-blur .lg::after {
   content: "";
@@ -215,29 +215,21 @@ html.real-blur .lg::after {
   border-radius: inherit;
   pointer-events: none;
   background:
-    radial-gradient(140% 90% at 0% 0%, rgb(255 255 255 / 0.3), transparent 55%),
-    radial-gradient(100% 80% at 100% 100%, rgb(255 255 255 / 0.12), transparent 60%);
+    radial-gradient(140% 90% at 0% 0%, rgb(255 255 255 / 0.18), transparent 50%),
+    radial-gradient(100% 80% at 100% 100%, rgb(255 255 255 / 0.07), transparent 60%);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.6),
-    inset 0 -1px 0 rgb(255 255 255 / 0.18),
-    inset 0 0 26px rgb(255 255 255 / 0.1);
+    inset 0 1px 0 rgb(255 255 255 / 0.45),
+    inset 0 -1px 0 rgb(255 255 255 / 0.1),
+    inset 0 0 22px rgb(255 255 255 / 0.06);
 }
-/* Cards and pills: raised clear glass on the blurred panel, glossy top, bright rim, real depth. */
+/* Cards and pills sit on the already-blurred panel: clear raised glass, no extra tint. */
 html.real-blur .lg-card, html.real-blur .lg-chip {
-  background: linear-gradient(165deg, rgb(255 255 255 / 0.24), rgb(255 255 255 / 0.05) 45%, rgb(255 255 255 / 0.12));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.55),
-    inset 0 -1px 0 rgb(255 255 255 / 0.14),
-    inset 0 0 18px rgb(255 255 255 / 0.09),
-    0 6px 16px -8px rgb(0 0 0 / 0.55);
-}
-html.real-blur .lg-card::before, html.real-blur .lg-chip::before {
-  background: linear-gradient(140deg, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.28) 30%, rgb(255 255 255 / 0.1) 60%, rgb(255 255 255 / 0.6));
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.03));
 }
 /* Buttons: clear glass pills over the blurred panel (no dark fill). */
 html.real-blur .lg-btn {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.32), rgb(255 255 255 / 0.1));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6), 0 1px 4px rgb(0 0 0 / 0.25);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0.1));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55), 0 1px 4px rgb(0 0 0 / 0.2);
 }
-html.real-blur .lg-btn:hover { filter: none; background: linear-gradient(180deg, rgb(255 255 255 / 0.45), rgb(255 255 255 / 0.18)); }
+html.real-blur .lg-btn:hover { filter: none; background: linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(255 255 255 / 0.16)); }
 html.real-blur .lg-btn svg { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35)); }

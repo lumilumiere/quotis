@@ -152,7 +152,7 @@ function composeGlass(target, cw, ch, k) {
   shape(document.querySelector("main"));
   ctx.clip();
   const o = 40 * k; // overscan so the blur does not fade in from the edges
-  ctx.filter = `blur(${22 * k}px) saturate(1.9) contrast(1.05) brightness(1.06)`;
+  ctx.filter = `blur(${22 * k}px) saturate(1.8) brightness(1.08)`;
   ctx.drawImage(small, -o, -o, canvas.width + 2 * o, canvas.height + 2 * o);
   ctx.filter = "none";
   const base = glass * 0.2; // Glass opacity adds a little smoke
@@ -168,11 +168,7 @@ function composeGlass(target, cw, ch, k) {
     const a = 1 - 0.45 / Math.max(b, 0.01);
     if (a <= 0) continue;
     shape(el);
-    // a gradient, not a flat fill, so the tile keeps some depth
-    const grad = ctx.createLinearGradient(0, r.y * k, 0, r.bottom * k);
-    grad.addColorStop(0, `rgba(0,0,0,${a * 0.82})`);
-    grad.addColorStop(1, `rgba(0,0,0,${Math.min(1, a * 1.18)})`);
-    ctx.fillStyle = grad;
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
     ctx.fill();
   }
 }
