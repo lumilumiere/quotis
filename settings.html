@@ -8,7 +8,7 @@
   </head>
   <body class="text-[13px] [color-scheme:dark]">
     <!-- Settings is a form: it keeps a readable tint no matter how clear the widget is set. -->
-    <div class="lg flex h-screen flex-col [--glass:0.72]">
+    <div class="lg settings-panel flex h-screen flex-col">
       <header data-tauri-drag-region class="flex items-center justify-between px-5 pb-2 pt-4">
         <span data-tauri-drag-region class="text-[15px] font-semibold">Settings</span>
         <button id="close" aria-label="Close settings" class="lg-btn grid size-6 place-items-center leading-none">×</button>
@@ -18,7 +18,7 @@
         <section class="space-y-1.5">
           <h2 class="px-3 text-[11px] uppercase tracking-wider text-ink/50">Connections</h2>
           <div id="tools" class="lg-group"></div>
-          <p class="px-3 text-[11px] leading-relaxed text-ink/45">
+          <p class="px-3 text-[11px] leading-relaxed text-ink/60">
             Leave a folder empty to auto-detect it. Tools that are off or not found are hidden from the widget.
           </p>
         </section>
@@ -35,14 +35,14 @@
               </select>
             </label>
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
-              Glass opacity
+              <span>Glass opacity <span class="block text-[11px] text-ink/60">How frosted the cards are. Text stays readable at any level.</span></span>
               <span class="flex items-center gap-2.5">
                 <input id="glass_opacity" type="range" min="0" max="100" class="lg-range w-28" />
                 <output id="glass_out" class="w-9 text-right tabular-nums text-ink/60"></output>
               </span>
             </label>
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
-              <span>Frosted blur <span class="block text-[11px] text-ink/45">Adds a light frost; off is fully clear.</span></span>
+              <span>Frosted blur <span class="block text-[11px] text-ink/60">Adds a light frost; off is fully clear.</span></span>
               <input id="blur" type="checkbox" class="lg-switch" />
             </label>
             <label class="flex items-center justify-between gap-4 px-3.5 py-2.5">
@@ -70,7 +70,7 @@
               </span>
             </label>
           </div>
-          <p class="px-3 text-[11px] leading-relaxed text-ink/45">
+          <p class="px-3 text-[11px] leading-relaxed text-ink/60">
             Codex and Gemini update instantly. Nothing is uploaded: the only request is Claude's limit check to
             api.anthropic.com, using your Claude Code login.
           </p>

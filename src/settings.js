@@ -19,8 +19,8 @@ $("tools").innerHTML = TOOLS.map(([key, name, hint]) => `
     </label>
     <input data-key="${key}" data-field="dir" spellcheck="false" placeholder="Folder (auto-detect)"
       class="lg-field w-full px-2.5 py-1.5 font-mono text-[11px] placeholder:font-sans" />
-    <p class="text-[11px] leading-relaxed text-ink/45">${hint}</p>
-    <p id="path-${key}" class="truncate font-mono text-[10px] text-ink/35"></p>
+    <p class="text-[11px] leading-relaxed text-ink/60">${hint}</p>
+    <p id="path-${key}" class="truncate font-mono text-[10px] text-ink/50"></p>
   </div>`).join("");
 
 function showStatus(status) {

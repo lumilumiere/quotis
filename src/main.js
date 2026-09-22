@@ -30,18 +30,18 @@ function bar(label, l) {
   const color = p > 50 ? "var(--ok)" : p > 20 ? "var(--warn)" : "var(--bad)"; // colour always tracks what's left
   const reset = until(l.resets_at);
   return `<div class="flex items-center gap-2.5 text-[0.6875rem]">
-    <span class="w-7 text-ink/55">${label}</span>
+    <span class="w-7 text-ink/70">${label}</span>
     <div class="lg-track h-2 flex-1 p-px">
       <div class="lg-fill h-full" style="width:${shown}%;--c:${color}"></div>
     </div>
-    <span class="w-[6rem] whitespace-nowrap text-right tabular-nums"><span class="font-medium">${Math.round(shown)}%</span><span class="text-ink/50"> ${showUsed ? "used" : "left"}</span>${reset ? `<span class="text-ink/50"> · ${reset}</span>` : ""}</span>
+    <span class="w-[6rem] whitespace-nowrap text-right tabular-nums"><span class="font-medium">${Math.round(shown)}%</span><span class="text-ink/70"> ${showUsed ? "used" : "left"}</span>${reset ? `<span class="text-ink/70"> · ${reset}</span>` : ""}</span>
   </div>`;
 }
 
 function body(r) {
-  if (r.status) return `<div class="text-[0.6875rem] text-ink/55">${r.status}</div>`;
+  if (r.status) return `<div class="text-[0.6875rem] text-ink/70">${r.status}</div>`;
   if (r.five_hour || r.weekly) return bar("5h", r.five_hour) + bar("wk", r.weekly);
-  return `<div class="text-[0.6875rem] tabular-nums text-ink/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-ink/50">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-ink/50">in 24h</span></div>`;
+  return `<div class="text-[0.6875rem] tabular-nums text-ink/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-ink/70">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-ink/70">in 24h</span></div>`;
 }
 
 // Scale everything together: measure the content at 16px/rem, then pick the largest
