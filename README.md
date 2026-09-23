@@ -1,6 +1,6 @@
 # Quotis
 
-A tiny floating widget that shows how much of your AI coding limits you have left: **Claude Code**, **Codex**, **GitHub Copilot**, **Cursor**, **Gemini CLI**, **Qwen Code** and **opencode**, at a glance.
+A tiny floating widget that shows how much of your AI coding limits you have left: **Claude Code**, **Codex**, **GitHub Copilot**, **Cursor**, **Gemini CLI**, **Qwen Code**, and **opencode**, at a glance.
 
 It sits on your desktop like a sticky note: a minimal, see-through Liquid Glass panel that stays on top and can be dragged and resized.
 
