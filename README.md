@@ -7,7 +7,7 @@ It sits on your desktop like a sticky note: a minimal, see-through Liquid Glass 
 | Tool | What Quotis shows | Where it comes from |
 |---|---|---|
 | **Claude Code** | 5-hour and weekly limits: % left + time until reset | Anthropic's usage endpoint (the one Claude Code's `/usage` uses), with your existing Claude Code login |
-| **Codex** | 5-hour and weekly limits: % left + time until reset | Codex's local session logs (`~/.codex/sessions`) |
+| **Codex** | 5-hour and weekly limits: % left + time until reset | OpenAI's usage endpoint (the one Codex's `/status` uses) with your existing Codex login, plus Codex's local session logs for instant updates |
 | **GitHub Copilot** | Monthly premium requests: % left + time until reset | GitHub's Copilot quota endpoint, with the login your Copilot editor plugin already stored |
 | **Cursor** | Plan usage this billing cycle: % left + time until reset | Cursor's usage endpoint, with the login the Cursor app already stored |
 | **Gemini CLI** | Tokens used in the last 5 hours and 24 hours | Gemini CLI's local chat logs (`~/.gemini/tmp`) |
@@ -41,12 +41,12 @@ The builds are not code-signed, so your OS will warn you the first time:
 
 - **Connections**: turn each tool on or off. Quotis auto-detects each tool's folder (`~/.claude`, `~/.codex`, `~/.gemini`, and it respects `CLAUDE_CONFIG_DIR` / `CODEX_HOME`). If yours lives elsewhere, type the folder in and the status will show **Connected** once it's found.
 - **Appearance**: rich blurred glass with white text and bars. it adapts to whatever is behind it, darkening only where the text needs it. Glass opacity (adds smoke), **real blur**, keep on top, and bars as % left or % used.
-- **Refresh**: how often to check the online limits (Claude, Copilot, Cursor; 1–60 min). Codex, Gemini, Qwen and opencode update instantly when their files change.
+- **Refresh**: how often to check the online limits (Claude, Codex, Copilot, Cursor; 1–60 min). Claude and Codex are re-checked within 2 minutes while you use them, and Codex, Gemini, Qwen and opencode also update instantly when their local files change.
 
 ### Requirements per tool
 
 - **Claude Code**: signed in with a Claude Pro or Max plan (API-key logins don't have 5-hour/weekly limits). If the row says *login expired*, open Claude Code once; it refreshes the login and Quotis picks it up.
-- **Codex**: the Codex CLI signed in with ChatGPT. Limits appear after your first Codex message.
+- **Codex**: Codex signed in with ChatGPT. Usage from other devices or the cloud shows up too, because Quotis asks OpenAI directly. With an API-key login, Quotis falls back to the local logs.
 - **GitHub Copilot**: signed in to Copilot in VS Code or a JetBrains IDE. Shows premium requests (Copilot Pro, Pro+, Business, and the free tier).
 - **Cursor**: signed in to the Cursor app. Plans without included usage (like Hobby) show their plan name instead of a bar.
 - **Gemini CLI**: any Gemini CLI install. Gemini doesn't store its quota locally, so Quotis shows token counts instead.
@@ -56,9 +56,9 @@ The builds are not code-signed, so your OS will warn you the first time:
 ## Privacy
 
 - Everything is read from files already on your computer. Nothing is uploaded or collected.
-- The **only** network requests are the limit checks for Claude, GitHub Copilot and Cursor. Each goes only to that tool's own servers, with the login that tool already stored on your machine. Quotis never modifies or refreshes those logins. On macOS, Claude's login is read from the Keychain, which may ask you to allow access. Turn a tool off in Settings to stop its request entirely.
+- The **only** network requests are the limit checks for Claude, Codex, GitHub Copilot and Cursor. Each goes only to that tool's own servers, with the login that tool already stored on your machine. Quotis never modifies or refreshes those logins. On macOS, Claude's login is read from the Keychain, which may ask you to allow access. Turn a tool off in Settings to stop its request entirely.
 - **Real blur (Windows):** to blur what is behind the widget, Quotis reads a tiny, low-resolution copy of that patch of screen about once a second (and when you move it). It stays in memory and is never saved or sent anywhere. For the ~50 ms of each copy the widget hides itself from capture so it does not blur itself; the rest of the time it shows in screenshots, recordings and screen sharing as normal. (macOS uses the system blur instead.)
-- The Claude, Copilot and Cursor endpoints are undocumented and may change. If one does, that row shows an error instead of wrong numbers.
+- The Claude, Codex, Copilot and Cursor endpoints are undocumented and may change. If one does, that row shows an error instead of wrong numbers.
 
 ## Security
 
@@ -69,12 +69,13 @@ Quotis reads sensitive things (your AI tools' logs, their logins, a patch of you
 | Tool | Request goes to | Returns |
 |---|---|---|
 | Claude Code | `api.anthropic.com/api/oauth/usage` | 5-hour and weekly percentages |
+| Codex | `chatgpt.com/backend-api/wham/usage` | 5-hour and weekly percentages |
 | GitHub Copilot | `api.github.com/copilot_internal/user` | premium requests left and reset date |
 | Cursor | `cursor.com/api/usage-summary` | plan usage and billing cycle |
 
-There is no telemetry, no analytics, no crash reporting and no update check. Turn those three off in Settings and Quotis makes no network requests at all.
+There is no telemetry, no analytics, no crash reporting and no update check. Turn those four off in Settings and Quotis makes no network requests at all.
 
-**Your logins:** Quotis reads the tokens these tools already stored: Claude Code's `~/.claude/.credentials.json` (the Keychain on macOS, which asks your permission), Copilot's `github-copilot/apps.json`, and Cursor's `state.vscdb`. Each token is sent only to its own tool's servers in the request above, over TLS: the Claude token only to Anthropic, the GitHub token only to GitHub, the Cursor token only to Cursor. Quotis never writes, refreshes, copies or logs a token. These endpoints only report usage, so Quotis cannot spend your quota.
+**Your logins:** Quotis reads the tokens these tools already stored: Claude Code's `~/.claude/.credentials.json` (the Keychain on macOS, which asks your permission), Codex's `~/.codex/auth.json`, Copilot's `github-copilot/apps.json`, and Cursor's `state.vscdb`. Each token is sent only to its own tool's servers in the request above, over TLS: the Claude token only to Anthropic, the Codex token only to OpenAI, the GitHub token only to GitHub, the Cursor token only to Cursor. Quotis never writes, refreshes, copies or logs a token. These endpoints only report usage, so Quotis cannot spend your quota.
 
 **Your logs and prompts:** the Codex, Gemini, Qwen and opencode readers take only the numbers they need (percentages, token counts, costs, timestamps) out of local files. Databases (opencode, Cursor) are opened read-only. Your prompts and the tools' replies are never parsed, stored or transmitted.
 

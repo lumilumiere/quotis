@@ -211,7 +211,7 @@ struct State {
     dirs: Dirs,
     snap: Snapshot,
     token_files: HashMap<&'static str, TokenLog>,
-    claude_dirty: bool,
+    dirty: std::collections::HashSet<&'static str>,
     polls: HashMap<&'static str, Poll>,
     watcher: RecommendedWatcher,
     watched: Vec<PathBuf>,
@@ -337,6 +337,28 @@ fn parse_claude_usage(v: &Value) -> Option<Row> {
     Some(Row { five_hour: lim("five_hour"), weekly: lim("seven_day"), ..Default::default() })
 }
 
+fn fetch_codex(dir: &Path) -> Result<Row, NetErr> {
+    let text = std::fs::read_to_string(dir.join("auth.json")).map_err(|_| NetErr::NotSignedIn)?;
+    let auth: Value = serde_json::from_str(&text).map_err(|_| NetErr::NotSignedIn)?;
+    let token = auth.pointer("/tokens/access_token").and_then(Value::as_str).ok_or(NetErr::NotSignedIn)?;
+    let account = auth.pointer("/tokens/account_id").and_then(Value::as_str).ok_or(NetErr::NotSignedIn)?;
+    let v = get(
+        "https://chatgpt.com/backend-api/wham/usage",
+        &[("Authorization", &format!("Bearer {token}")), ("ChatGPT-Account-Id", account), ("Accept", "application/json")],
+    )?;
+    parse_codex_usage(&v).ok_or(NetErr::Unavailable("bad response"))
+}
+
+fn parse_codex_usage(v: &Value) -> Option<Row> {
+    let rl = v.get("rate_limit")?;
+    let lim = |k: &str| {
+        let w = rl.get(k)?;
+        Some(Limit { used_percent: w.get("used_percent")?.as_f64()?, resets_at: w.get("reset_at")?.as_i64()? })
+    };
+    let row = Row { five_hour: lim("primary_window"), weekly: lim("secondary_window"), ..Default::default() };
+    (row.five_hour.is_some() || row.weekly.is_some()).then_some(row)
+}
+
 fn copilot_tokens(dir: &Path) -> Vec<String> {
     ["apps.json", "hosts.json"]
         .iter()
@@ -429,7 +451,7 @@ fn base64url(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-const ONLINE: [&str; 3] = ["claude", "copilot", "cursor"];
+const ONLINE: [&str; 4] = ["claude", "codex", "copilot", "cursor"];
 
 fn enabled(s: &Settings, key: &str) -> bool {
     match key {
@@ -455,6 +477,7 @@ fn poll(app: &AppHandle, key: &'static str) {
     };
     let (result, expired) = match key {
         "claude" => (fetch_claude(&dirs.claude), "login expired, open Claude Code"),
+        "codex" => (fetch_codex(&dirs.codex), ""),
         "copilot" => (fetch_copilot(&dirs.copilot), "login expired, sign in to Copilot again"),
         _ => (fetch_cursor(&dirs.cursor_db()), "login expired, open Cursor"),
     };
@@ -463,11 +486,14 @@ fn poll(app: &AppHandle, key: &'static str) {
         let mut guard = state.lock().unwrap();
         let s = &mut *guard;
         s.polls.entry(key).or_default().last = Some(Instant::now());
-        if key == "claude" {
-            s.claude_dirty = false;
-        }
-        let same_dirs = s.dirs.claude == dirs.claude && s.dirs.copilot == dirs.copilot && s.dirs.cursor == dirs.cursor;
-        if enabled(&s.settings, key) && same_dirs {
+        s.dirty.remove(key);
+        let same_dirs = s.dirs.claude == dirs.claude && s.dirs.codex == dirs.codex && s.dirs.copilot == dirs.copilot && s.dirs.cursor == dirs.cursor;
+        if key == "codex" && result.is_err() {
+            if let Err(NetErr::RateLimited(retry)) = result {
+                let p = s.polls.get_mut(key).unwrap();
+                p.backoff = retry.unwrap_or((p.backoff * 2).max(300)).min(3600);
+            }
+        } else if enabled(&s.settings, key) && same_dirs {
             let row = s.snap.row(key);
             let has_data = row.five_hour.is_some() || row.weekly.is_some() || row.monthly.is_some();
             let problem = |msg: &str| Row { connected: true, status: Some(msg.into()), ..Default::default() };
@@ -681,7 +707,10 @@ fn spawn_event_loop(app: AppHandle, rx: mpsc::Receiver<notify::Result<notify::Ev
             let state = app.state::<Shared>();
             let mut s = state.lock().unwrap();
             if touched(&d.claude_logs()) {
-                s.claude_dirty = true;
+                s.dirty.insert("claude");
+            }
+            if touched(&d.codex_logs()) {
+                s.dirty.insert("codex");
             }
             if let Some(row) = codex.filter(|_| s.snap.codex.connected) {
                 s.snap.codex = row;
@@ -715,7 +744,7 @@ fn spawn_ticker(app: AppHandle) {
                     let backoff = p.map_or(0, |p| p.backoff);
                     p.and_then(|p| p.last).is_none_or(|t| {
                         let secs = t.elapsed().as_secs();
-                        secs >= base.max(backoff) || (key == "claude" && s.claude_dirty && secs >= 120.max(backoff))
+                        secs >= base.max(backoff) || (s.dirty.contains(key) && secs >= 120.max(backoff))
                     })
                 })
                 .collect()
@@ -761,6 +790,7 @@ async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<HashMap
         let mut s = state.lock().unwrap();
         let cfg = |st: &Settings, key: &str| match key {
             "claude" => st.claude.clone(),
+            "codex" => st.codex.clone(),
             "copilot" => st.copilot.clone(),
             _ => st.cursor.clone(),
         };
@@ -963,7 +993,7 @@ fn main() {
                 settings,
                 snap: Snapshot::default(),
                 token_files: HashMap::new(),
-                claude_dirty: false,
+                dirty: Default::default(),
                 polls: HashMap::new(),
                 watcher: notify::recommended_watcher(tx)?,
                 watched: Vec::new(),
@@ -997,6 +1027,10 @@ mod tests {
 {"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"primary":{"used_percent":4.0,"window_minutes":300,"resets_at":1790096975},"secondary":{"used_percent":53.0,"window_minutes":10080,"resets_at":1790602389}}}}
 {"type":"response_item","payload":{"type":"message"}}
 {"type":"event_msg","payload":{"type":"token_count","rate_limits":null}}"#;
+        let usage = serde_json::json!({"rate_limit":{"primary_window":{"used_percent":67,"reset_at":1790172974},"secondary_window":{"used_percent":94,"reset_at":1790602390}}});
+        let u = parse_codex_usage(&usage).unwrap();
+        assert_eq!((u.five_hour.unwrap().used_percent, u.weekly.unwrap().resets_at), (67.0, 1790602390));
+        assert!(parse_codex_usage(&serde_json::json!({"rate_limit":null})).is_none());
         let r = parse_codex_limits(log).unwrap();
         assert_eq!(r.five_hour.unwrap().used_percent, 4.0);
         assert_eq!(r.weekly.unwrap().resets_at, 1790602389);
@@ -1079,7 +1113,7 @@ mod tests {
     #[ignore]
     fn live_online_sources() {
         let d = Dirs::from(&Settings::default());
-        for (name, r) in [("claude", fetch_claude(&d.claude)), ("copilot", fetch_copilot(&d.copilot)), ("cursor", fetch_cursor(&d.cursor_db()))] {
+        for (name, r) in [("claude", fetch_claude(&d.claude)), ("codex", fetch_codex(&d.codex)), ("copilot", fetch_copilot(&d.copilot)), ("cursor", fetch_cursor(&d.cursor_db()))] {
             match r {
                 Ok(r) => {
                     let show = |l: Option<Limit>| l.map(|l| format!("{:.0}% used, resets in {}h", l.used_percent, (l.resets_at - now()) / 3600));
