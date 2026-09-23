@@ -5,7 +5,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 const TOOLS = [
   ["claude", "Claude Code", "Sign in to Claude Code with a Pro or Max plan. Shows your exact 5-hour and weekly limits."],
   ["codex", "Codex", "Sign in to the Codex CLI with ChatGPT. Limits appear after your first Codex message."],
+  ["copilot", "GitHub Copilot", "Sign in to Copilot in VS Code or a JetBrains IDE. Shows your monthly premium requests left and when they reset."],
+  ["cursor", "Cursor", "Sign in to the Cursor app. Shows how much of your plan's included usage is left this billing cycle."],
   ["gemini", "Gemini CLI", "Shows tokens used in the last 5 hours and 24 hours (Gemini doesn't store its quota locally)."],
+  ["qwen", "Qwen Code", "Shows tokens used in the last 5 hours and 24 hours, like Gemini CLI."],
+  ["opencode", "opencode", "Shows tokens and cost in the last 5 hours and 24 hours. opencode uses your own API keys, so there's no plan limit."],
 ];
 const $ = (id) => document.getElementById(id);
 let settings;

@@ -5,8 +5,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 const ROWS = [
   ["claude", "Claude Code", "#d97757"],
   ["codex", "Codex", "#10a37f"],
+  ["copilot", "GitHub Copilot", "#8957e5"],
+  ["cursor", "Cursor", "#c9ccd1"],
   ["gemini", "Gemini", "#4285f4"],
+  ["qwen", "Qwen Code", "#615ced"],
+  ["opencode", "opencode", "#fab283"],
 ];
+const usd = new Intl.NumberFormat("en", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const fmt = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const list = document.getElementById("list");
 let last = null;
@@ -38,8 +43,10 @@ function bar(label, l) {
 
 function body(r) {
   if (r.status) return `<div class="text-[0.6875rem] text-ink/70">${r.status}</div>`;
-  if (r.five_hour || r.weekly) return bar("5h", r.five_hour) + bar("wk", r.weekly);
-  return `<div class="text-[0.6875rem] tabular-nums text-ink/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-ink/70">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-ink/70">in 24h</span></div>`;
+  if (r.five_hour || r.weekly || r.monthly) return bar("5h", r.five_hour) + bar("wk", r.weekly) + bar("mo", r.monthly);
+  const tokens = `<div class="text-[0.6875rem] tabular-nums text-ink/75">${fmt.format(r.tokens_5h ?? 0)} <span class="text-ink/70">in 5h</span> · ${fmt.format(r.tokens_24h ?? 0)} <span class="text-ink/70">in 24h</span></div>`;
+  if (r.cost_5h == null) return tokens;
+  return tokens + `<div class="text-[0.6875rem] tabular-nums text-ink/75">${usd.format(r.cost_5h)} <span class="text-ink/70">in 5h</span> · ${usd.format(r.cost_24h ?? 0)} <span class="text-ink/70">in 24h</span></div>`;
 }
 
 const BASE_W = 270;
