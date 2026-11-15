@@ -6,7 +6,7 @@ It sits at the top of your screen as a floating island or a notch. Click it and 
 
 > Quotis is an independent project. It is not affiliated with or endorsed by Apple, Anthropic, OpenAI, Microsoft, GitHub, Google, Cursor, Alibaba, OpenRouter or DeepSeek.
 
-**Status of 2.0:** developed and tested on Windows 11. macOS and Linux builds are produced by CI but the 2.0 overlay has **not yet been tested on a Mac or on Linux**. See [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
+**Status of 2.0:** developed and tested on Windows 11. The automated tests also pass on macOS (Apple Silicon and Intel) and Linux in CI, but the 2.0 overlay has **not yet been run on a Mac or on Linux**, and no provider has yet been re-checked against a live account. See [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## What it shows
 

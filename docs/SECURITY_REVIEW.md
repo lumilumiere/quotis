@@ -6,9 +6,9 @@ Status of every security-relevant finding from the two independent Codex reviews
 |---|---|---|---|
 | [0001 baseline](reviews/0001-baseline-codex.md) | `f80bc40` (v0.2.1) | 18 (14 medium, 4 low) | 0 / 0 |
 | [0002 implementation](reviews/0002-implementation-codex.md) | `f0b3ea5` | 16 new (13 medium, 3 low); of the 18 baseline findings 7 fixed, 10 partial, 1 not fixed | 0 / 0 |
-| 0003 fix verification | see [PROJECT_STATUS.md](PROJECT_STATUS.md) | see there | |
+| 0003 fix verification | `cbcdaa0` | **Not completed.** Codex reached its usage limit before writing a report | |
 
-No finding was rated critical or high by the reviewer. The dispositions below are the implementer's; a finding counts as closed only where the reviewer's follow-up confirms it.
+No finding was rated critical or high by the reviewer. **The dispositions below are the implementer's own and have not been independently confirmed**, because the follow-up review did not complete. Treat "Fixed" as "fixed and tested by the implementer".
 
 ## Review 0002: new findings
 
@@ -61,7 +61,7 @@ No finding was rated critical or high by the reviewer. The dispositions below ar
 |---|---|---|
 | `cargo audit` | 0 vulnerabilities, 2 warnings (above). Before updating: 7 vulnerabilities in the lockfile inherited from 0.2.1 (rustls, rustls-webpki, webpki-roots, bundled SQLite) | 2026-11-16 |
 | `npm audit` | 0 vulnerabilities. Before: 2 high in the Vite dev server | 2026-11-15 |
-| Secret patterns in tracked files (`git grep` for key, token and private-key shapes) | None found. This is a pattern search, not gitleaks; gitleaks runs in CI | 2026-11-15 |
+| Secret scan | gitleaks over the full history passes in CI, with an allowlist (`.gitleaks.toml`) naming nine fake credentials that the tests plant on purpose. A separate `git` search of every added line in history found only those fixtures and a lockfile hash | 2026-11-16 |
 | Hostile strings through the real renderer | Markup and script in every provider-supplied field: no element created, no script run, text shown literally. Windows, WebView2 157 | 2026-11-16 |
 | Tokens in output | Fake tokens planted in fixture login files never appear in CLI output or errors | Automated |
 | Read-only CLI | Data folder byte- and time-identical after `--live` | Automated |

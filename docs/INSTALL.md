@@ -5,8 +5,8 @@
 | | Minimum | Tested with 2.0 |
 |---|---|---|
 | Windows | Windows 10 or 11, x64, with the WebView2 runtime (preinstalled on Windows 11) | Windows 11 Pro, WebView2 157 |
-| macOS | macOS 10.15 or later, Apple Silicon or Intel | **Not yet tested** |
-| Linux | A desktop with WebKitGTK 4.1 | **Not yet tested** |
+| macOS | macOS 10.15 or later, Apple Silicon or Intel | **Overlay not yet tested** (automated tests pass in CI) |
+| Linux | A desktop with WebKitGTK 4.1 | **Overlay not yet tested** (automated tests pass in CI) |
 
 "Not yet tested" means the 2.0 overlay has not been run on that system. The builds exist; their behaviour is unconfirmed.
 

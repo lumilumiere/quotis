@@ -9,7 +9,7 @@ Measured on one Windows machine with fixture data. These are measurements of tha
 | Machine | Laptop, Intel Core i5-1135G7 (4 cores / 8 threads, 2.4 GHz), 15.7 GB RAM |
 | OS | Windows 11 Pro 10.0.26300 |
 | Webview | Microsoft Edge WebView2 157.0.4341.46 |
-| Build | `quotis-2.0` branch, release profile (`opt-level = "s"`, LTO, 1 codegen unit, stripped) |
+| Build | `quotis-2.0` branch at `f0b3ea5`, before the review fixes (not re-measured afterwards), release profile (`opt-level = "s"`, LTO, 1 codegen unit, stripped) |
 | Date | 2026-11-15 |
 | Data | Fixture folders: Codex session log with rate limits, Gemini token log. Other providers pointed at an empty folder, so **no network requests were made** during measurement |
 | Mode | Island, collapsed, matte, dark |

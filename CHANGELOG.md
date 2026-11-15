@@ -2,7 +2,7 @@
 
 ## 2.0.0 (unreleased)
 
-Developed and tested on Windows 11. Not yet tested on macOS or Linux.
+Developed and tested on Windows 11. The test suite also passes on macOS (Apple Silicon and Intel) and Linux in CI, but the overlay itself has not yet been run on a Mac or on Linux.
 
 ### New
 
@@ -52,11 +52,14 @@ Developed and tested on Windows 11. Not yet tested on macOS or Linux.
 ### Security
 
 - Two high-severity advisories in the Vite development server (a build-time dependency) were resolved by updating it.
+- Seven advisories in locked Rust dependencies carried over from 0.2 (the rustls TLS stack and the bundled SQLite) were resolved by updating them.
+- Freshness is re-judged whenever a snapshot is read, so a number never looks current only because it was current when written.
+- A damaged settings file falls back to the last good copy instead of turning every provider back on.
 
 ### For developers
 
 - The single-file backend is now a workspace: `quotis-core` (engine and provider adapters), `quotis-cli`, and the Tauri shell. Adding a provider is one file.
-- 87 Rust tests and 14 frontend tests, none of which use the network or real logins.
+- 99 Rust tests and 17 frontend tests, none of which use the network or real logins.
 - New CI workflow for pushes and pull requests: formatting, clippy, tests on Windows, macOS (Apple Silicon and Intel) and Linux, dependency advisories, secret scanning.
 - Releases attach `quotis-cli` binaries and SHA-256 checksum files, and support macOS signing and notarization when the certificates are provided.
 

@@ -54,6 +54,6 @@ Assessed from each product's public behaviour as known at the time of writing. T
 
 | | Windows 11 x64 | macOS (Apple Silicon / Intel) | Linux |
 |---|---|---|---|
-| Core, CLI and parsers | Tested (unit, integration, CLI contract) | Not run locally; covered by CI once the branch is pushed | Same |
+| Core, CLI and parsers | Tested (unit, integration, CLI contract), locally and in CI | Tests pass in CI on both Apple Silicon and Intel runners | Tests pass in CI (Ubuntu 22.04) |
 | Desktop overlay | Run and checked with fixture data | **Not tested** | **Not tested** |
 | Claude Code login | Credentials file | Keychain via `/usr/bin/security`, **not tested** | Credentials file |
