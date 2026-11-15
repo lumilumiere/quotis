@@ -147,6 +147,9 @@ html.overlay body {
   white-space: nowrap;
 }
 #pill-name {
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--muted);
   font-weight: 500;
   transition: color 0.15s;
