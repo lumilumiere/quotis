@@ -17,8 +17,21 @@ fn temp_dir() -> PathBuf {
     dir
 }
 
+/// Seals the environment: every place a provider would look by default points into the
+/// test folder, so no test can touch a real login or log.
+fn sealed(cmd: &mut Command, dir: &Path) {
+    let home = dir.join("sealed-home");
+    cmd.env("QUOTIS_DATA_DIR", dir).env_remove("OPENROUTER_API_KEY").env_remove("DEEPSEEK_API_KEY");
+    for var in ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"] {
+        cmd.env(var, &home);
+    }
+}
+
 fn cli(dir: &Path, args: &[&str]) -> Output {
-    Command::new(BIN).args(args).env("QUOTIS_DATA_DIR", dir).env_remove("OPENROUTER_API_KEY").env_remove("DEEPSEEK_API_KEY").output().unwrap()
+    let mut cmd = Command::new(BIN);
+    cmd.args(args);
+    sealed(&mut cmd, dir);
+    cmd.output().unwrap()
 }
 
 fn stdout(o: &Output) -> String {
@@ -50,6 +63,7 @@ fn sample(generated_at: i64) -> Snapshot {
         schema_version: SCHEMA_VERSION,
         generated_at,
         app_version: "2.0.0".into(),
+        stale_after_secs: 900,
         providers: vec![
             provider("claude", "Claude Code", Status::Connected, None, vec![quota, expired]),
             provider("cursor", "Cursor", Status::Error, Some(ProviderError::new(ErrorKind::AuthExpired, "login expired, open Cursor")), vec![]),
@@ -149,6 +163,29 @@ fn stale_snapshot_still_prints_but_exits_4() {
 }
 
 #[test]
+fn freshness_is_judged_when_read_not_when_written() {
+    // Written 15 seconds ago and marked fresh, but the window reset 10 seconds ago.
+    let dir = temp_dir();
+    let mut snap = sample(time::now() - 15);
+    snap.providers[0].metrics[0].resets_at = Some(time::now() - 10);
+    assert_eq!(snap.providers[0].metrics[0].freshness, Freshness::Fresh);
+    cache::write(&dir, &snap).unwrap();
+    let o = cli(&dir, &["snapshot"]);
+    assert!(o.status.success(), "the snapshot itself is recent");
+    assert_eq!(json(&o)["data"]["providers"][0]["metrics"][0]["freshness"], "expired");
+    let text = stdout(&cli(&dir, &["status"]));
+    assert!(text.contains("window reset since this was read") && !text.contains("5h 62% left (resets"), "{text}");
+
+    // An old snapshot: its numbers are stale as well as the file.
+    let old = with_snapshot(2000);
+    assert_eq!(json(&cli(&old, &["snapshot"]))["data"]["providers"][0]["metrics"][0]["freshness"], "stale");
+
+    // Options that a command would ignore are refused rather than silently accepted.
+    assert_eq!(cli(&dir, &["status", "--provider", "claude"]).status.code(), Some(2));
+    assert_eq!(cli(&dir, &["snapshot", "--format", "json"]).status.code(), Some(2));
+}
+
+#[test]
 fn status_text_qualifies_expired_and_hides_undetected() {
     let dir = with_snapshot(5);
     let text = stdout(&cli(&dir, &["status"]));
@@ -187,8 +224,20 @@ fn export_is_sanitized() {
 }
 
 #[test]
-fn providers_lists_the_registry_without_reading_secrets() {
+fn providers_lists_the_registry_from_a_sealed_environment() {
     let dir = temp_dir();
+    // A fake Copilot login where the sealed environment would look for one. It must be
+    // found (so we know the sandbox is what was read) and must never be printed.
+    let copilot = if cfg!(windows) { dir.join("sealed-home/github-copilot") } else { dir.join("sealed-home/.config/github-copilot") };
+    std::fs::create_dir_all(&copilot).unwrap();
+    std::fs::write(copilot.join("apps.json"), r#"{"github.com:Iv1":{"oauth_token":"gho_FAKE_SANDBOX_TOKEN"}}"#).unwrap();
+    let out = stdout(&cli(&dir, &["providers", "--json"]));
+    assert!(!out.contains("gho_FAKE_SANDBOX_TOKEN"));
+    let found: Value = serde_json::from_str(&out).unwrap();
+    let row = |id: &str| found["data"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap().clone();
+    assert_eq!(row("copilot")["found"], true, "the sandboxed login is the one that was seen");
+    assert_eq!(row("claude")["found"], false, "nothing outside the sandbox was seen");
+    assert!(row("copilot")["path"].as_str().unwrap().contains("sealed-home"));
     let v = json(&cli(&dir, &["providers", "--json"]));
     let rows = v["data"].as_array().unwrap();
     let ids: Vec<_> = rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
@@ -225,7 +274,7 @@ fn live_local_only_reads_fixtures_and_writes_nothing() {
     )
     .unwrap();
     isolated_settings(&dir, &[("codex", &codex)]);
-    let before: Vec<_> = walk(&dir);
+    let before = walk(&dir);
 
     let o = cli(&dir, &["snapshot", "--live", "--offline"]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
@@ -244,13 +293,14 @@ fn live_local_only_reads_fixtures_and_writes_nothing() {
     assert!(!cache::path(&dir).exists(), "--live does not write the desktop's snapshot");
 }
 
-fn walk(dir: &Path) -> Vec<(PathBuf, u64)> {
+/// Every file under `dir` with its exact bytes and modification time.
+fn walk(dir: &Path) -> Vec<(PathBuf, Vec<u8>, std::time::SystemTime)> {
     let mut out = Vec::new();
     for e in std::fs::read_dir(dir).unwrap().flatten() {
         if e.path().is_dir() {
             out.extend(walk(&e.path()));
         } else {
-            out.push((e.path(), e.metadata().unwrap().len()));
+            out.push((e.path(), std::fs::read(e.path()).unwrap(), e.metadata().unwrap().modified().unwrap()));
         }
     }
     out.sort();

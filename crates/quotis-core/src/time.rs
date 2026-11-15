@@ -45,8 +45,14 @@ pub fn parse_ts(s: &str) -> Option<i64> {
                 b'-' => -1,
                 _ => return None,
             };
-            let digits: String = rest[1..].chars().filter(|&c| c != ':').collect();
-            if !matches!(digits.len(), 2 | 4) || !digits.bytes().all(|c| c.is_ascii_digit()) {
+            // Exactly +HH, +HHMM or +HH:MM. Anything else is not a timestamp.
+            let o = &rest.as_bytes()[1..];
+            let digits: String = match o.len() {
+                2 | 4 => rest[1..].to_string(),
+                5 if o[2] == b':' => format!("{}{}", &rest[1..3], &rest[4..]),
+                _ => return None,
+            };
+            if !digits.bytes().all(|c| c.is_ascii_digit()) {
                 return None;
             }
             let oh: i64 = digits[..2].parse().ok()?;
@@ -128,6 +134,10 @@ mod tests {
             "2026-09-22T09:38:1ZZ",
             "+026-09-22T09:38:12Z",
             "2026-09-22T09:38:12+05:3x",
+            "2026-09-22T09:38:12+0:8",
+            "2026-09-22T09:38:12+08::00",
+            "2026-09-22T09:38:12+:0800",
+            "2026-09-22T09:38:12+080",
             "２０２６-09-22T09:38:12Z",
             "2026-09-22T09:38:1é",
         ] {

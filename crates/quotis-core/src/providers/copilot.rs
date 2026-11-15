@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 
 pub struct Copilot;
 
+/// Most stored logins tried in one check.
+const MAX_LOGINS: usize = 3;
+
 static INFO: Info = Info {
     id: "copilot",
     name: "GitHub Copilot",
@@ -69,19 +72,22 @@ impl Provider for Copilot {
     }
 
     fn collect_online(&self, dir: &Path, now: i64) -> Option<Result<Collected, ProviderError>> {
-        let tokens = tokens(dir);
+        let mut tokens = tokens(dir);
+        tokens.sort();
+        tokens.dedup();
         if tokens.is_empty() {
             return Some(Err(not_signed_in()));
         }
-        let mut err = ProviderError::new(ErrorKind::AuthExpired, "login expired, sign in to Copilot again");
-        for t in tokens {
+        // Another stored login is tried only when one is rejected as expired. A rate limit or
+        // a network failure applies to them all, so it ends the attempt.
+        for t in tokens.iter().take(MAX_LOGINS) {
             match get("https://api.github.com/copilot_internal/user", &[("Authorization", &format!("token {t}")), ("Accept", "application/json")]) {
                 Ok(v) => return Some(parse(&v, now).ok_or_else(bad_response)),
                 Err(e) if e.kind == ErrorKind::AuthExpired => continue,
-                Err(e) => err = e,
+                Err(e) => return Some(Err(e)),
             }
         }
-        Some(Err(err))
+        Some(Err(ProviderError::new(ErrorKind::AuthExpired, "login expired, sign in to Copilot again")))
     }
 }
 

@@ -187,7 +187,26 @@ pub struct Snapshot {
     pub schema_version: u32,
     pub generated_at: i64,
     pub app_version: String,
+    /// How old an observation may be, in seconds, before it counts as stale. Lets a reader
+    /// re-judge freshness later without knowing the app's settings.
+    #[serde(default = "default_stale_after")]
+    pub stale_after_secs: i64,
     pub providers: Vec<ProviderSnapshot>,
+}
+
+fn default_stale_after() -> i64 {
+    900
+}
+
+impl Snapshot {
+    /// Re-judges every metric's freshness for `now`. A snapshot read from disk was fresh
+    /// when written; a window may have reset, or the numbers aged, since then.
+    pub fn refresh(&mut self, now: i64) {
+        let budget = self.stale_after_secs.max(60);
+        for m in self.providers.iter_mut().flat_map(|p| p.metrics.iter_mut()) {
+            m.refresh_freshness(now, budget);
+        }
+    }
 }
 
 /// What one collection pass produced.

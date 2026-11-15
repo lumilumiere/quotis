@@ -4,6 +4,7 @@
 use quotis_core::providers::{Info, Provider};
 use quotis_core::*;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,11 +30,13 @@ struct Fake {
     online: Script,
     local: Script,
     panic_online: bool,
+    /// How many times detection touched this provider.
+    detects: AtomicUsize,
 }
 
 impl Fake {
     fn new(info: &'static Info) -> Arc<Self> {
-        Arc::new(Fake { info, online: Default::default(), local: Default::default(), panic_online: false })
+        Arc::new(Fake { info, online: Default::default(), local: Default::default(), panic_online: false, detects: AtomicUsize::new(0) })
     }
 }
 
@@ -45,6 +48,7 @@ impl Provider for Fake {
         PathBuf::from("/fake/default")
     }
     fn detect(&self, _dir: &Path) -> bool {
+        self.detects.fetch_add(1, Ordering::Relaxed);
         true
     }
     fn watch_dir(&self, dir: &Path) -> Option<PathBuf> {
@@ -70,7 +74,16 @@ fn err(kind: ErrorKind) -> ProviderError {
 }
 
 fn engine(fake: Arc<Fake>) -> Engine {
-    Engine::with_providers(Settings::default(), vec![fake])
+    let mut e = Engine::with_providers(Settings::default(), vec![fake]);
+    e.probe_now();
+    e
+}
+
+/// Runs one local collection and records it at `now`.
+fn local(e: &mut Engine, now: i64) {
+    let j = e.local_jobs().remove(0);
+    let out = j.run(now);
+    e.finish(&j, out, now);
 }
 
 /// Runs every due online job once and records it.
@@ -129,7 +142,7 @@ fn rate_limit_backs_off_and_keeps_last_numbers() {
     assert_eq!(e.backoff_secs("fake"), 1800, "no Retry-After: exponential");
     e.age_last_poll("fake", Duration::from_secs(4000));
     poll(&mut e, 5800);
-    assert_eq!(e.backoff_secs("fake"), 3600, "capped at one hour");
+    assert_eq!(e.backoff_secs("fake"), 86_400, "a server's Retry-After is honoured, up to a day");
 }
 
 #[test]
@@ -199,18 +212,13 @@ fn local_and_online_sources_merge_by_newest_observation() {
     ]);
     fake.online.lock().unwrap().push(Ok(quota("q", 20.0, None, Source::ProviderApi, 1000)));
     let mut e = engine(fake);
-    let local = |e: &mut Engine| {
-        let j = e.local_jobs().remove(0);
-        let out = j.run(0);
-        e.finish(&j, out, 0);
-    };
-    local(&mut e);
+    local(&mut e, 600);
     assert_eq!(only(&e, 600).metrics[0].used, Some(10.0));
     poll(&mut e, 1000);
     assert_eq!(only(&e, 1000).metrics[0].used, Some(20.0), "newer online value replaces the older log value");
-    local(&mut e);
+    local(&mut e, 1500);
     assert_eq!(only(&e, 1500).metrics[0].used, Some(30.0), "a newer log line replaces the online value");
-    local(&mut e);
+    local(&mut e, 1500);
     assert_eq!(only(&e, 1500).metrics[0].used, Some(30.0), "an older log line never overwrites newer data");
     assert_eq!(only(&e, 1500).metrics.len(), 1);
 }
@@ -221,9 +229,7 @@ fn signed_out_online_is_quiet_when_local_data_exists() {
     fake.local.lock().unwrap().push(Ok(quota("q", 10.0, None, Source::LocalLog, 0)));
     fake.online.lock().unwrap().extend([Err(err(ErrorKind::NotSignedIn)), Err(err(ErrorKind::AuthExpired))]);
     let mut e = engine(fake);
-    let j = e.local_jobs().remove(0);
-    let out = j.run(0);
-    e.finish(&j, out, 0);
+    local(&mut e, 0);
     poll(&mut e, 0);
     let p = only(&e, 0);
     assert!(p.error.is_none() && p.status == Status::Connected);
@@ -246,7 +252,7 @@ fn auth_loss_drops_api_numbers() {
 
 #[test]
 fn a_panicking_provider_does_not_take_the_others_down() {
-    let bad = Arc::new(Fake { info: &FAKE, online: Default::default(), local: Default::default(), panic_online: true });
+    let bad = Arc::new(Fake { info: &FAKE, online: Default::default(), local: Default::default(), panic_online: true, detects: AtomicUsize::new(0) });
     let good = Fake::new(&OTHER);
     good.local.lock().unwrap().push(Ok(quota("q", 5.0, None, Source::LocalLog, 0)));
     let mut e = Engine::with_providers(Settings::default(), vec![bad, good]);
@@ -304,9 +310,19 @@ fn a_result_from_before_a_round_trip_reconfiguration_is_dropped() {
 fn disabled_providers_are_not_probed() {
     let mut s = Settings::default();
     s.providers.insert("fake".into(), ProviderCfg { enabled: false, dir: String::new() });
-    let e = Engine::with_providers(s, vec![Fake::new(&FAKE)]);
+    let fake = Fake::new(&FAKE);
+    let mut e = Engine::with_providers(s, vec![fake.clone()]);
+    e.probe_now();
     let st = e.statuses().remove(0);
-    assert!(!st.enabled && !st.found, "a disabled provider's files and login are never touched");
+    assert!(!st.enabled && !st.found);
+    let _ = e.collect_once(false);
+    assert_eq!(fake.detects.load(Ordering::Relaxed), 0, "a disabled provider's files and login are never touched");
+    // Turned on, it is probed.
+    e.set_settings(Settings::default());
+    assert_eq!(fake.detects.load(Ordering::Relaxed), 0, "applying settings does no I/O by itself");
+    e.probe_now();
+    assert_eq!(fake.detects.load(Ordering::Relaxed), 1);
+    assert!(e.statuses()[0].found);
 }
 
 #[test]
@@ -371,4 +387,120 @@ fn snapshots_carry_no_secrets_and_survive_a_round_trip() {
 fn hostile_error_text_is_cleaned() {
     let e = ProviderError::new(ErrorKind::Unavailable, &format!("<script>alert(1)</script>\u{1b}[31m\n{}", "x".repeat(500)));
     assert!(e.message.chars().count() <= 120 && !e.message.chars().any(char::is_control));
+}
+
+#[test]
+fn a_local_failure_after_success_is_reported_and_clears_on_recovery() {
+    let fake = Fake::new(&FAKE);
+    fake.local.lock().unwrap().extend([
+        Ok(quota("q", 10.0, None, Source::LocalLog, 100)),
+        Err(err(ErrorKind::PermissionDenied)),
+        Ok(quota("q", 11.0, None, Source::LocalLog, 300)),
+    ]);
+    let mut e = engine(fake);
+    local(&mut e, 100);
+    local(&mut e, 200);
+    let p = only(&e, 200);
+    assert_eq!(p.error.as_ref().map(|e| e.kind), Some(ErrorKind::PermissionDenied), "the failure is shown, not swallowed");
+    assert_eq!(p.metrics[0].used, Some(10.0), "last numbers are kept alongside it");
+    local(&mut e, 300);
+    let p = only(&e, 300);
+    assert!(p.error.is_none());
+    assert_eq!(p.metrics[0].used, Some(11.0));
+}
+
+#[test]
+fn when_the_local_source_disappears_its_numbers_go_too() {
+    let fake = Fake::new(&FAKE);
+    fake.local.lock().unwrap().push(Ok(quota("q", 10.0, None, Source::LocalLog, 100)));
+    fake.online.lock().unwrap().push(Ok(quota("api", 50.0, None, Source::ProviderApi, 100)));
+    let mut e = engine(fake);
+    local(&mut e, 100);
+    poll(&mut e, 100);
+    assert_eq!(only(&e, 100).metrics.len(), 2);
+    // The script is now empty: the fake's local source returns None, as a removed folder would.
+    local(&mut e, 200);
+    let p = only(&e, 200);
+    assert_eq!(p.metrics.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["api"], "API numbers stay, local ones are dropped");
+}
+
+#[test]
+fn a_local_pass_replaces_what_the_previous_local_pass_reported() {
+    let fake = Fake::new(&FAKE);
+    let two = Collected {
+        metrics: vec![Metric::quota_percent("a", "5h", 1.0, None, Source::LocalLog, 100), Metric::quota_percent("b", "wk", 2.0, None, Source::LocalLog, 100)],
+        ..Default::default()
+    };
+    fake.local.lock().unwrap().extend([Ok(two), Ok(quota("a", 3.0, None, Source::LocalLog, 200))]);
+    let mut e = engine(fake);
+    local(&mut e, 100);
+    local(&mut e, 200);
+    let p = only(&e, 200);
+    assert_eq!(p.metrics.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a"], "a metric the source no longer reports is not left behind");
+}
+
+#[test]
+fn a_future_dated_local_reading_cannot_outrank_real_ones() {
+    let fake = Fake::new(&FAKE);
+    // A log line stamped in the year 2100.
+    fake.local.lock().unwrap().push(Ok(quota("q", 99.0, None, Source::LocalLog, 4_102_444_800)));
+    fake.online.lock().unwrap().push(Ok(quota("q", 20.0, None, Source::ProviderApi, 2000)));
+    let mut e = engine(fake);
+    local(&mut e, 1000);
+    assert_eq!(only(&e, 1000).metrics[0].observed_at, 1000, "an observation is never later than when it was collected");
+    poll(&mut e, 2000);
+    let m = only(&e, 2000).metrics.remove(0);
+    assert_eq!((m.used, m.freshness), (Some(20.0), Freshness::Fresh), "the current API reading wins");
+}
+
+#[test]
+fn an_older_local_job_finishing_late_never_overwrites_a_newer_one() {
+    let fake = Fake::new(&FAKE);
+    let mut e = engine(fake);
+    let older = e.local_jobs().remove(0);
+    let newer = e.local_jobs().remove(0);
+    // Same second, so timestamps cannot order them: only the order of issue can.
+    e.finish(&newer, Some(Ok(quota("q", 80.0, None, Source::LocalLog, 1000))), 1000);
+    e.finish(&older, Some(Ok(quota("q", 20.0, None, Source::LocalLog, 1000))), 1000);
+    assert_eq!(only(&e, 1000).metrics[0].used, Some(80.0));
+}
+
+#[test]
+fn a_lost_online_job_does_not_block_polling_forever_and_its_late_answer_is_ignored() {
+    let fake = Fake::new(&FAKE);
+    fake.online.lock().unwrap().push(Ok(quota("q", 40.0, None, Source::ProviderApi, 5000)));
+    let mut e = engine(fake);
+    let lost = e.due_online(0).remove(0);
+    assert!(only(&e, 0).refreshing);
+    e.age_last_poll("fake", Duration::from_secs(100));
+    assert!(e.due_online(100).is_empty() && e.refresh_online().is_empty(), "still inside the lease: one poll in flight");
+    // The job never reports back (hung subprocess, dead thread). After the lease it is written off.
+    e.age_last_poll("fake", Duration::from_secs(100_000));
+    assert!(!only(&e, 0).refreshing, "the UI stops showing a refresh that is not happening");
+    assert_eq!(poll(&mut e, 5000), 1, "polling resumes");
+    assert_eq!(only(&e, 5000).metrics[0].used, Some(40.0));
+    // The lost job finally answers. It must not overwrite the newer result.
+    e.finish(&lost, Some(Ok(quota("q", 1.0, None, Source::ProviderApi, 6000))), 6000);
+    assert_eq!(only(&e, 6000).metrics[0].used, Some(40.0));
+}
+
+#[test]
+fn a_snapshot_read_later_is_rejudged_for_the_time_it_is_read() {
+    let fake = Fake::new(&FAKE);
+    fake.online.lock().unwrap().push(Ok(quota("q", 90.0, Some(2000), Source::ProviderApi, 1500)));
+    let mut e = engine(fake);
+    poll(&mut e, 1500);
+    let mut snap = e.snapshot(1600);
+    assert_eq!((snap.providers[0].metrics[0].freshness, snap.stale_after_secs), (Freshness::Fresh, 900));
+    // The same snapshot, read from disk after the window reset.
+    let mut later = snap.clone();
+    later.refresh(2001);
+    assert_eq!(later.providers[0].metrics[0].freshness, Freshness::Expired);
+    // And one read long after, with no reset involved.
+    snap.providers[0].metrics[0].resets_at = None;
+    snap.refresh(1500 + 901);
+    assert_eq!(snap.providers[0].metrics[0].freshness, Freshness::Stale);
+    // A snapshot written before the budget field existed still parses, with the default budget.
+    let old = r#"{"schema_version":1,"generated_at":1,"app_version":"2.0.0","providers":[]}"#;
+    assert_eq!(cache::parse(old).unwrap().stale_after_secs, 900);
 }

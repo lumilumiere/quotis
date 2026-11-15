@@ -72,7 +72,7 @@ mod tests {
     use crate::fsx::temp_dir;
 
     fn snap() -> Snapshot {
-        Snapshot { schema_version: SCHEMA_VERSION, generated_at: 5, app_version: "t".into(), providers: vec![] }
+        Snapshot { schema_version: SCHEMA_VERSION, generated_at: 5, app_version: "t".into(), stale_after_secs: 900, providers: vec![] }
     }
 
     #[test]

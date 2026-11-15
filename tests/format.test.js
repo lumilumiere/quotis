@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { amount, describe, level, percentLeft, summarize, tightest, until, visible } from "../src/format.js";
+import { amount, describe, level, percentLeft, refresh, summarize, tightest, until, visible } from "../src/format.js";
 
 const NOW = 1_800_000_000;
 const quota = (over = {}) => ({ id: "five_hour", label: "5h", category: "provider_quota", unit: "percent", used: 38, remaining: 62, total: 100, resets_at: NOW + 7800, observed_at: NOW, source: "provider_api", freshness: "fresh", ...over });
@@ -22,6 +22,7 @@ test("level thresholds and distrust of expired data", () => {
   assert.equal(level(quota({ remaining: 20 })), "warn");
   assert.equal(level(quota({ remaining: 10 })), "bad");
   assert.equal(level(quota({ remaining: 2, freshness: "expired" })), "unknown");
+  assert.equal(level(quota({ remaining: 99, freshness: "stale" })), "unknown", "a stale 99% is not vouched for with green");
   assert.equal(level(tokens()), "unknown");
   assert.equal(level(quota({ remaining: 45 }), 50), "warn");
 });
@@ -57,6 +58,39 @@ test("describe: money quotas, balances, local usage and estimates stay distinct"
   assert.deepEqual(describe(quota({ unit: "usd", remaining: 3.5, total: undefined, used: undefined, resets_at: undefined, label: "balance" }), NOW), { value: "$3.50", detail: "left", stale: false });
   assert.deepEqual(describe(tokens(), NOW), { value: "1.2M", detail: "in 5h", stale: false });
   assert.deepEqual(describe(tokens({ category: "estimated_cost", unit: "usd", used: 0.5, label: "24h" }), NOW), { value: "$0.50", detail: "est. in 24h", stale: false });
+});
+
+test("describe: show-used on a money quota pairs the percentage with the used amount", () => {
+  const key = quota({ unit: "usd", used: 7.5, remaining: 12.5, total: 20, resets_at: undefined });
+  assert.deepEqual(describe(key, NOW, false), { value: "63%", detail: "left ($12.50)", stale: false });
+  assert.deepEqual(describe(key, NOW, true), { value: "38%", detail: "used ($7.50)", stale: false });
+  assert.equal(describe({ ...key, used: undefined }, NOW, true).detail, "used ($7.50)", "derived from total and remaining when used is absent");
+});
+
+test("refresh re-judges freshness for the moment of display", () => {
+  const s = snap(provider({ metrics: [quota({ observed_at: NOW, resets_at: NOW + 100 }), tokens({ observed_at: NOW })] }));
+  s.stale_after_secs = 900;
+  assert.deepEqual(refresh(s, NOW + 50).providers[0].metrics.map((m) => m.freshness), ["fresh", "fresh"]);
+  // The window reset while the snapshot sat on screen.
+  assert.deepEqual(refresh(s, NOW + 100).providers[0].metrics.map((m) => m.freshness), ["expired", "fresh"]);
+  assert.equal(describe(refresh(s, NOW + 100).providers[0].metrics[0], NOW + 100).value, "reset");
+  // No new data for longer than the budget.
+  assert.deepEqual(refresh(s, NOW + 901).providers[0].metrics.map((m) => m.freshness), ["expired", "stale"]);
+  // The clock moved backwards: an observation from the future is not trusted.
+  assert.equal(refresh(s, NOW - 3600).providers[0].metrics[1].freshness, "stale");
+  // A snapshot without the budget field uses the default; the input is never mutated.
+  delete s.stale_after_secs;
+  assert.equal(refresh(s, NOW + 901).providers[0].metrics[1].freshness, "stale");
+  assert.equal(s.providers[0].metrics[0].freshness, "fresh");
+  assert.equal(refresh(null, NOW), null);
+});
+
+test("summarize: a stale reading is flagged and never shown as healthy", () => {
+  const s = summarize(snap(provider({ metrics: [quota({ remaining: 99, freshness: "stale" })] })), {}, NOW);
+  assert.equal(s.value, "99%");
+  assert.equal(s.stale, true);
+  assert.equal(s.level, "unknown");
+  assert.equal(summarize(snap(provider()), {}, NOW).stale, false);
 });
 
 test("tightest ignores expired windows and non-quotas", () => {

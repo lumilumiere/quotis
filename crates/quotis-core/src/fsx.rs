@@ -7,11 +7,15 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 const MAX_DEPTH: usize = 8;
+/// Entries looked at in any one folder. Bounds the walk even when nothing matches.
+const MAX_DIR_ENTRIES: usize = 20_000;
 /// The most a single read takes from one file. Older bytes of a larger file are skipped.
 pub const MAX_READ: u64 = 16 << 20;
 
 /// Lists regular `.jsonl` files under `dir`, newest directory names first, stopping at `limit`.
-/// Symlinks are never followed, so a link cannot lead the walk out of `dir` or into a loop.
+/// Links inside `dir` (symlinks, Windows junctions) are never followed, so nothing planted in
+/// the folder can lead the walk elsewhere or into a loop. `dir` itself is the folder the user
+/// configured and may be a link: people do keep tool folders on another drive.
 pub fn jsonl_files(dir: &Path, limit: usize) -> Vec<(PathBuf, SystemTime)> {
     let mut out = Vec::new();
     walk(dir, 0, limit, &mut out);
@@ -20,7 +24,7 @@ pub fn jsonl_files(dir: &Path, limit: usize) -> Vec<(PathBuf, SystemTime)> {
 
 fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Vec<(PathBuf, SystemTime)>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = rd.flatten().collect();
+    let mut entries: Vec<_> = rd.flatten().take(MAX_DIR_ENTRIES).collect();
     entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
     for e in entries {
         if out.len() >= limit {
@@ -39,27 +43,55 @@ fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Vec<(PathBuf, SystemTi
     }
 }
 
-/// Reads the complete lines appended to `path` since `offset`, then advances `offset`.
-/// A file that shrank (truncated or rotated) is read again from the start. A trailing
-/// partial line is left for the next call.
-pub fn read_new_lines(path: &Path, offset: &mut u64) -> io::Result<String> {
+/// Where reading of one file stopped, plus a fingerprint of how the file began.
+#[derive(Default)]
+pub struct Checkpoint {
+    pub offset: u64,
+    head: u64,
+}
+
+pub struct NewLines {
+    pub text: String,
+    /// The file was truncated or replaced: everything read from it before is void.
+    pub restarted: bool,
+    /// More was appended than one pass may read; the oldest part was skipped.
+    pub skipped: bool,
+}
+
+fn fingerprint(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    h.finish()
+}
+
+/// Reads the complete lines appended to `path` since the checkpoint, then advances it.
+/// A file that shrank, or whose first bytes changed (replaced or rotated, even to the same
+/// length), is read again from the start. A trailing partial line is left for the next call.
+// ponytail: a replacement that keeps the first 64 bytes and is no shorter looks like an
+// append. Compare file identity (inode / file index) if a tool is ever found to do that.
+pub fn read_new_lines(path: &Path, cp: &mut Checkpoint) -> io::Result<NewLines> {
     let mut f = File::open(path)?;
     let len = f.metadata()?.len();
-    if len < *offset {
-        *offset = 0;
+    let mut head = [0u8; 64];
+    let n = f.read(&mut head)?;
+    let head = fingerprint(&head[..n]);
+    let restarted = cp.offset > 0 && (len < cp.offset || head != cp.head);
+    if restarted {
+        cp.offset = 0;
     }
-    let mut skipped_partial = false;
-    if len - *offset > MAX_READ {
-        *offset = len - MAX_READ;
-        skipped_partial = true;
+    cp.head = head;
+    let skipped = len - cp.offset > MAX_READ;
+    if skipped {
+        cp.offset = len - MAX_READ;
     }
-    f.seek(SeekFrom::Start(*offset))?;
+    f.seek(SeekFrom::Start(cp.offset))?;
     let mut buf = Vec::new();
     f.take(MAX_READ).read_to_end(&mut buf)?;
     let end = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
-    let start = if skipped_partial { buf.iter().position(|&b| b == b'\n').map_or(end, |i| i + 1).min(end) } else { 0 };
-    *offset += end as u64;
-    Ok(String::from_utf8_lossy(&buf[start..end]).into_owned())
+    let start = if skipped { buf.iter().position(|&b| b == b'\n').map_or(end, |i| i + 1).min(end) } else { 0 };
+    cp.offset += end as u64;
+    Ok(NewLines { text: String::from_utf8_lossy(&buf[start..end]).into_owned(), restarted, skipped })
 }
 
 /// Reads at most the last `max` bytes of a file, dropping a leading partial line.
@@ -109,13 +141,15 @@ mod tests {
     fn incremental_read_only_returns_new_complete_lines() {
         let dir = temp_dir("tail");
         let p = dir.join("a.jsonl");
-        std::fs::write(&p, "one\ntwo\npart").unwrap();
-        let mut off = 0;
-        assert_eq!(read_new_lines(&p, &mut off).unwrap(), "one\ntwo\n");
-        assert_eq!(off, 8);
-        assert_eq!(read_new_lines(&p, &mut off).unwrap(), "");
+        let first = format!("{}\n", "one".repeat(30));
+        std::fs::write(&p, format!("{first}two\npart")).unwrap();
+        let mut cp = Checkpoint::default();
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert_eq!((r.text, r.restarted, r.skipped), (format!("{first}two\n"), false, false));
+        assert_eq!(read_new_lines(&p, &mut cp).unwrap().text, "");
         std::fs::OpenOptions::new().append(true).open(&p).unwrap().write_all(b"ial\nthree\n").unwrap();
-        assert_eq!(read_new_lines(&p, &mut off).unwrap(), "partial\nthree\n");
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert_eq!((r.text.as_str(), r.restarted), ("partial\nthree\n", false));
     }
 
     #[test]
@@ -123,11 +157,28 @@ mod tests {
         let dir = temp_dir("trunc");
         let p = dir.join("a.jsonl");
         std::fs::write(&p, "one\ntwo\nthree\n").unwrap();
-        let mut off = 0;
-        read_new_lines(&p, &mut off).unwrap();
+        let mut cp = Checkpoint::default();
+        read_new_lines(&p, &mut cp).unwrap();
         std::fs::write(&p, "new\n").unwrap();
-        assert_eq!(read_new_lines(&p, &mut off).unwrap(), "new\n");
-        assert_eq!(off, 4);
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert_eq!((r.text.as_str(), r.restarted, cp.offset), ("new\n", true, 4));
+    }
+
+    #[test]
+    fn a_replaced_file_of_the_same_or_greater_length_restarts() {
+        let dir = temp_dir("replace");
+        let p = dir.join("a.jsonl");
+        std::fs::write(&p, "aaaa 10\n").unwrap();
+        let mut cp = Checkpoint::default();
+        read_new_lines(&p, &mut cp).unwrap();
+        // Same length, different content: size alone cannot tell this from "nothing new".
+        std::fs::write(&p, "bbbb 90\n").unwrap();
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert_eq!((r.text.as_str(), r.restarted), ("bbbb 90\n", true));
+        // Longer replacement: must not be read as an append of its tail.
+        std::fs::write(&p, "cccc 50\ncccc 51\n").unwrap();
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert_eq!((r.text.as_str(), r.restarted), ("cccc 50\ncccc 51\n", true));
     }
 
     #[test]

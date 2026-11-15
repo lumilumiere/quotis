@@ -2,7 +2,8 @@
 //!
 //! By default it only reads the snapshot file the desktop app keeps up to date, so running
 //! it costs no network request. `--live` collects once itself. It never writes anything,
-//! never runs another program on your behalf, and never prints a credential.
+//! takes no command, path or URL to act on, and never prints a credential. (With `--live`
+//! on macOS, reading the Claude Code login asks the system `security` tool for it.)
 
 use quotis_core::cache::{self, CacheError};
 use quotis_core::*;
@@ -52,6 +53,7 @@ struct Args {
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut a = Args { command: String::new(), json: false, live: false, offline: false, max_age: 180, provider: None };
+    let mut format_given = false;
     let mut it = argv.iter();
     while let Some(arg) = it.next() {
         let mut value = |name: &str| it.next().cloned().ok_or(format!("{name} needs a value"));
@@ -64,6 +66,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             }
             "--provider" => a.provider = Some(value("--provider")?),
             "--format" => {
+                format_given = true;
                 if value("--format")? != "json" {
                     return Err("the only export format is json".into());
                 }
@@ -81,6 +84,12 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     }
     if a.offline && !a.live {
         return Err("--offline only applies with --live".into());
+    }
+    if a.provider.is_some() && a.command != "diagnose" {
+        return Err("--provider only applies to diagnose".into());
+    }
+    if format_given && a.command != "export" {
+        return Err("--format only applies to export".into());
     }
     a.json |= matches!(a.command.as_str(), "snapshot" | "export");
     Ok(a)
@@ -100,7 +109,10 @@ fn load(a: &Args, dir: &Path, now: i64) -> Result<Loaded, (i32, &'static str, St
         return Ok(Loaded { snap, source: if a.offline { "live_local_only" } else { "live" }, age: 0, stale: false });
     }
     match cache::read(dir) {
-        Ok(snap) => {
+        Ok(mut snap) => {
+            // The file says what was fresh when it was written. Judge it again for now:
+            // a window may have reset, or the numbers aged, since then.
+            snap.refresh(now);
             let age = now - snap.generated_at;
             // A snapshot dated in the future means the clock changed; its age is unknown.
             let stale = !(-300..=a.max_age).contains(&age);
@@ -260,7 +272,9 @@ fn run(argv: &[String], dir: &Path, now: i64) -> (i32, String) {
     };
 
     if a.command == "providers" {
-        let statuses = Engine::new(Settings::load(dir)).statuses();
+        let mut engine = Engine::new(Settings::load(dir));
+        engine.probe_now();
+        let statuses = engine.statuses();
         if a.json {
             return (0, format!("{}\n", json!({"schema_version": SCHEMA_VERSION, "command": "providers", "data": statuses})));
         }
@@ -312,7 +326,9 @@ fn run(argv: &[String], dir: &Path, now: i64) -> (i32, String) {
         "status" => (code, status_text(&l, now)),
         _ => {
             let id = a.provider.as_deref().unwrap_or("");
-            let statuses = Engine::new(Settings::load(dir)).statuses();
+            let mut engine = Engine::new(Settings::load(dir));
+            engine.probe_now();
+            let statuses = engine.statuses();
             let (Some(p), Some(st)) = (l.snap.providers.iter().find(|p| p.id == id), statuses.iter().find(|s| s.info.id == id)) else {
                 let known: Vec<_> = statuses.iter().map(|s| s.info.id).collect();
                 return fail(EXIT_UNKNOWN_PROVIDER, "unknown_provider", format!("unknown provider. Known providers: {}", known.join(", ")), a.json);

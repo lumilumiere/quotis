@@ -84,8 +84,11 @@ html.overlay body {
   top: 0;
   left: 50%;
   translate: -50% 0;
+  display: flex;
+  flex-direction: column;
   width: var(--w, 200px);
   height: var(--h, 32px);
+  max-height: 100vh;
   overflow: hidden;
   border-radius: 16px;
   color: var(--ink);
@@ -110,6 +113,7 @@ html.overlay body {
 #bar {
   position: relative;
   display: flex;
+  flex: none;
   align-items: center;
   height: 32px;
 }
@@ -202,7 +206,8 @@ html.overlay body {
 #island[data-state="disconnected"] #pill-value {
   color: var(--bad);
 }
-#island[data-state="none"] #pill-value {
+#island[data-state="none"] #pill-value,
+#island[data-stale] #pill-value {
   color: var(--muted);
   font-weight: 500;
 }
@@ -261,13 +266,16 @@ html.overlay body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  min-height: 0;
   width: 300px;
-  max-height: 528px;
   margin: 0;
   padding: 2px 8px 8px;
   box-sizing: border-box;
   list-style: none;
+  overflow-x: hidden;
   overflow-y: auto;
+  overflow-wrap: anywhere;
   scrollbar-width: thin;
   scrollbar-color: var(--track) transparent;
   opacity: 0;
@@ -279,7 +287,9 @@ html.overlay body {
 
 .card {
   display: flex;
+  flex: none;
   flex-direction: column;
+  min-width: 0;
   gap: 5px;
   padding: 8px 10px;
   border-radius: 10px;
@@ -291,6 +301,7 @@ html.overlay body {
   gap: 6px;
 }
 .card-name {
+  min-width: 0;
   font-weight: 600;
 }
 .tag {

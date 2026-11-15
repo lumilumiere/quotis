@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const APP_ID: &str = "io.github.lumilumiere.quotis";
+const BACKUP: &str = "settings.json.bak";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -79,8 +80,13 @@ impl Settings {
     /// Parses settings JSON, accepting the flat 0.x layout (`{"claude": {...}, ...}`) too.
     /// Unknown or malformed input yields the defaults rather than an error.
     pub fn parse(text: &str) -> Self {
-        let Ok(mut v) = serde_json::from_str::<Value>(text) else { return Self::default() };
-        let Some(obj) = v.as_object_mut() else { return Self::default() };
+        Self::try_parse(text).unwrap_or_default()
+    }
+
+    /// Like `parse`, but `None` when the text is not usable settings at all.
+    pub fn try_parse(text: &str) -> Option<Self> {
+        let mut v = serde_json::from_str::<Value>(text).ok()?;
+        let obj = v.as_object_mut()?;
         let legacy = !obj.contains_key("providers");
         if legacy {
             let mut providers = serde_json::Map::new();
@@ -93,9 +99,9 @@ impl Settings {
             // 0.x defaulted to the glass look; "blur" meant a screen-sampled backdrop that no longer exists.
             obj.remove("blur");
         }
-        let mut s: Settings = serde_json::from_value(v).unwrap_or_default();
+        let mut s: Settings = serde_json::from_value(v).ok()?;
         s.sanitize();
-        s
+        Some(s)
     }
 
     pub fn sanitize(&mut self) {
@@ -112,14 +118,23 @@ impl Settings {
         self.providers.retain(|id, _| id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
     }
 
+    /// Loads settings. If the file is damaged, the last good copy is used instead, so a
+    /// provider the user turned off is not quietly turned back on. Defaults only when
+    /// neither exists (first run) or both are unusable.
     pub fn load(dir: &Path) -> Self {
-        std::fs::read_to_string(dir.join("settings.json")).map(|t| Self::parse(&t)).unwrap_or_default()
+        let read = |name: &str| std::fs::read_to_string(dir.join(name)).ok().and_then(|t| Self::try_parse(&t));
+        read("settings.json").or_else(|| read(BACKUP)).unwrap_or_default()
     }
 
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
+        let path = dir.join("settings.json");
+        // Keep the current file as the backup, but only if it is itself good.
+        if std::fs::read_to_string(&path).is_ok_and(|t| Self::try_parse(&t).is_some()) {
+            let _ = std::fs::copy(&path, dir.join(BACKUP));
+        }
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        crate::cache::write_atomic(&dir.join("settings.json"), json.as_bytes())
+        crate::cache::write_atomic(&path, json.as_bytes())
     }
 }
 
@@ -198,6 +213,25 @@ mod tests {
         );
         assert_eq!(s.providers.keys().collect::<Vec<_>>(), ["ok"]);
         assert_eq!((s.refresh_min, s.opacity, s.mode.as_str(), s.theme.as_str(), s.warn_below, s.auto_collapse_secs), (1, 100, "island", "auto", 90, 600));
+    }
+
+    #[test]
+    fn a_damaged_settings_file_falls_back_to_the_last_good_one() {
+        let dir = crate::fsx::temp_dir("settings-bak");
+        assert_eq!(Settings::load(&dir), Settings::default(), "first run");
+        let mut s = Settings::default();
+        s.providers.insert("claude".into(), ProviderCfg { enabled: false, dir: String::new() });
+        s.save(&dir).unwrap();
+        s.refresh_min = 9;
+        s.save(&dir).unwrap();
+        std::fs::write(dir.join("settings.json"), "{ half written").unwrap();
+        let loaded = Settings::load(&dir);
+        assert!(!loaded.providers["claude"].enabled, "a provider that was turned off stays off");
+        assert_eq!(loaded.refresh_min, 5, "the backup is the previous good save");
+        // Saving over a damaged file must not replace the good backup with the damage.
+        loaded.save(&dir).unwrap();
+        std::fs::write(dir.join("settings.json"), "garbage").unwrap();
+        assert!(!Settings::load(&dir).providers["claude"].enabled);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! These are locally measured usage: there is no allowance in the files, so no quota is shown.
 
 use super::{Info, Provider};
-use crate::fsx::{jsonl_files, read_new_lines};
+use crate::fsx::{io_error, jsonl_files, read_new_lines, Checkpoint};
 use crate::model::{Category, Collected, Metric, ProviderError, Source, Unit};
 use crate::settings::home;
 use crate::time::parse_ts;
@@ -17,10 +17,13 @@ const DAY: i64 = 24 * 3600;
 const FUTURE_SKEW: i64 = 300;
 /// Upper bound on log files tracked at once.
 const MAX_FILES: usize = 2000;
+/// Upper bound on token records kept per file. Beyond it the oldest are dropped and the
+/// totals are marked partial.
+const MAX_ENTRIES: usize = 100_000;
 
 #[derive(Default)]
 struct FileState {
-    offset: u64,
+    checkpoint: Checkpoint,
     entries: Vec<(i64, u64)>,
 }
 
@@ -82,8 +85,9 @@ fn usage_metrics(entries: impl Iterator<Item = (i64, u64)> + Clone, now: i64) ->
     [("tokens_5h", "5h", 5 * 3600), ("tokens_24h", "24h", DAY)]
         .into_iter()
         .map(|(id, label, secs)| {
-            let sum: u64 = entries.clone().filter(|(ts, _)| (-FUTURE_SKEW..secs).contains(&(now - ts))).map(|(_, n)| n).sum();
-            Metric { used: Some(sum as f64), ..Metric::new(id, label, Category::LocalUsage, Unit::Tokens, Source::LocalLog, now) }.window(Some(secs as u64))
+            // Summed as f64: a hostile or corrupt count must not overflow into a small, plausible total.
+            let sum: f64 = entries.clone().filter(|(ts, _)| (-FUTURE_SKEW..secs).contains(&(now - ts))).fold(0.0, |sum, (_, n)| sum + n as f64);
+            Metric { used: Some(sum), ..Metric::new(id, label, Category::LocalUsage, Unit::Tokens, Source::LocalLog, now) }.window(Some(secs as u64))
         })
         .collect()
 }
@@ -120,18 +124,37 @@ impl Provider for TokenLog {
         // watcher's changed-path list if a log folder ever grows past MAX_FILES.
         let recent: Vec<PathBuf> = jsonl_files(&logs(dir), MAX_FILES).into_iter().filter(|(_, m)| *m > cutoff).map(|(p, _)| p).collect();
         files.retain(|p, _| recent.contains(p));
+        let mut partial = false;
+        let mut failed = None;
         for p in recent {
             let st = files.entry(p.clone()).or_default();
-            let before = st.offset;
-            if let Ok(text) = read_new_lines(&p, &mut st.offset) {
-                if st.offset < before {
-                    st.entries.clear();
+            match read_new_lines(&p, &mut st.checkpoint) {
+                Ok(new) => {
+                    if new.restarted {
+                        st.entries.clear();
+                    }
+                    partial |= new.skipped;
+                    st.entries.extend(parse_lines(&new.text));
                 }
-                st.entries.extend(parse_lines(&text));
+                Err(e) => failed = Some(io_error(&e)),
             }
-            st.entries.retain(|(ts, _)| now - ts < DAY);
+            // Records outside the last day, in either direction, are of no further use.
+            st.entries.retain(|(ts, _)| (-FUTURE_SKEW..DAY).contains(&(now - ts)));
+            if st.entries.len() > MAX_ENTRIES {
+                st.entries.drain(..st.entries.len() - MAX_ENTRIES);
+                partial = true;
+            }
         }
-        let metrics = usage_metrics(files.values().flat_map(|f| f.entries.iter().copied()), now);
+        // A log that could not be read means the total is wrong, not smaller.
+        if let Some(e) = failed {
+            return Some(Err(e));
+        }
+        let mut metrics = usage_metrics(files.values().flat_map(|f| f.entries.iter().copied()), now);
+        if partial {
+            for m in &mut metrics {
+                m.qualification = Some("partial: a log was too large to read in full, so this is a lower bound".into());
+            }
+        }
         Some(Ok(Collected { metrics, ..Default::default() }))
     }
 }
@@ -193,6 +216,36 @@ mod tests {
         let other = crate::fsx::temp_dir("tokenlog2");
         std::fs::create_dir_all(other.join("tmp")).unwrap();
         assert_eq!(used(p.collect_local(&other, now).unwrap().unwrap()), 0.0);
+    }
+
+    #[test]
+    fn a_replaced_log_of_equal_length_is_recounted_and_huge_counts_do_not_wrap() {
+        let dir = crate::fsx::temp_dir("tokenlog-replace");
+        std::fs::create_dir_all(dir.join("tmp")).unwrap();
+        let file = dir.join("tmp/s.jsonl");
+        let p = TokenLog::gemini();
+        let now = parse_ts("2026-09-22T10:00:00Z").unwrap();
+        std::fs::write(&file, line("2026-09-22T09:00:00Z", 10)).unwrap();
+        assert_eq!(p.collect_local(&dir, now).unwrap().unwrap().metrics[1].used, Some(10.0));
+        std::fs::write(&file, line("2026-09-22T09:00:01Z", 90)).unwrap();
+        assert_eq!(p.collect_local(&dir, now).unwrap().unwrap().metrics[1].used, Some(90.0), "the old 10 must not survive");
+        std::fs::write(&file, format!("{}{}", line("2026-09-22T09:00:00Z", u64::MAX), line("2026-09-22T09:00:01Z", u64::MAX))).unwrap();
+        let used = p.collect_local(&dir, now).unwrap().unwrap().metrics[1].used.unwrap();
+        assert!(used > 3.6e19, "two maximal counts add up instead of wrapping: {used}");
+    }
+
+    #[test]
+    fn far_future_records_are_dropped_not_kept_forever() {
+        let dir = crate::fsx::temp_dir("tokenlog-future");
+        std::fs::create_dir_all(dir.join("tmp")).unwrap();
+        std::fs::write(dir.join("tmp/s.jsonl"), line("2099-01-01T00:00:00Z", 7)).unwrap();
+        let p = TokenLog::gemini();
+        let now = parse_ts("2026-09-22T10:00:00Z").unwrap();
+        p.collect_local(&dir, now).unwrap().unwrap();
+        let kept: usize = p.files.lock().unwrap().1.values().map(|f| f.entries.len()).sum();
+        assert_eq!(kept, 0);
+        let empty = p.collect_local(&dir, now).unwrap().unwrap().metrics[0].used.unwrap();
+        assert!(empty == 0.0 && empty.is_sign_positive(), "an empty total is 0, never -0");
     }
 
     #[test]

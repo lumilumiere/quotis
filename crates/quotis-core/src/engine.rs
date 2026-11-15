@@ -12,6 +12,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const MAX_BACKOFF: u64 = 3600;
+/// The longest a server's own Retry-After is honoured for.
+const MAX_RETRY_AFTER: u64 = 86_400;
+/// An online job that has not reported back after this long is presumed lost: the provider
+/// may be polled again and a late answer from the lost job is ignored.
+const LEASE_SECS: u64 = 180;
 /// How soon after local activity or a passed reset an online provider may be re-polled.
 const EAGER_SECS: u64 = 120;
 
@@ -31,6 +36,9 @@ pub struct Job {
     /// The provider configuration this job was created for. A result from an older
     /// configuration is dropped, even if the folder was since changed back.
     generation: u64,
+    /// Order in which jobs were handed out. An older local job never overwrites a newer one,
+    /// and only the most recent online job for a provider is accepted.
+    seq: u64,
 }
 
 pub type Outcome = Option<Result<Collected, ProviderError>>;
@@ -62,6 +70,12 @@ struct State {
     notes: Vec<String>,
     account: Option<String>,
     error: Option<ProviderError>,
+    /// Which kind of collection the current error came from.
+    error_src: Option<Kind>,
+    /// Highest local job sequence committed so far.
+    local_seq: u64,
+    /// Sequence of the online job currently in flight.
+    online_seq: u64,
     observed_at: Option<i64>,
     refreshing: bool,
     last_poll: Option<Instant>,
@@ -88,6 +102,18 @@ pub struct Engine {
     providers: Vec<Arc<dyn Provider>>,
     states: HashMap<&'static str, State>,
     app_version: String,
+    next_seq: u64,
+}
+
+/// A detection pass, prepared under the engine lock and run outside it: detection reads
+/// credential files and databases and must never hold up the UI.
+pub struct Probe(Vec<(Arc<dyn Provider>, PathBuf, u64)>);
+
+impl Probe {
+    pub fn run(self) -> Vec<(&'static str, u64, bool)> {
+        let detect = |p: &Arc<dyn Provider>, dir: &Path| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| p.detect(dir))).unwrap_or(false);
+        self.0.into_iter().map(|(p, dir, generation)| (p.info().id, generation, detect(&p, &dir))).collect()
+    }
 }
 
 impl Engine {
@@ -98,7 +124,7 @@ impl Engine {
     pub fn with_providers(settings: Settings, providers: Vec<Arc<dyn Provider>>) -> Self {
         let seed = std::collections::hash_map::RandomState::new();
         let states = providers.iter().map(|p| (p.info().id, State { jitter_pct: seed.hash_one(p.info().id) % 11, ..Default::default() })).collect();
-        let mut e = Engine { settings: Settings::default(), providers, states, app_version: env!("CARGO_PKG_VERSION").into() };
+        let mut e = Engine { settings: Settings::default(), providers, states, app_version: env!("CARGO_PKG_VERSION").into(), next_seq: 0 };
         e.set_settings(settings);
         e
     }
@@ -112,7 +138,28 @@ impl Engine {
         self.settings.position = position;
     }
 
+    /// Prepares a detection pass for every enabled provider. Disabled providers are never probed.
+    pub fn probe(&self) -> Probe {
+        Probe(self.enabled().map(|p| (p.clone(), self.states[p.info().id].dir.clone(), self.states[p.info().id].generation)).collect())
+    }
+
+    /// Records detection results, ignoring any for a provider that was reconfigured meanwhile.
+    pub fn apply_probe(&mut self, results: Vec<(&'static str, u64, bool)>) {
+        for (id, generation, found) in results {
+            if let Some(st) = self.states.get_mut(id).filter(|st| st.generation == generation) {
+                st.detected = found;
+            }
+        }
+    }
+
+    /// Detects inline. For one-shot callers (the CLI, tests) that hold no lock.
+    pub fn probe_now(&mut self) {
+        let results = self.probe().run();
+        self.apply_probe(results);
+    }
+
     /// Applies new settings. A provider whose folder or on/off state changed starts clean.
+    /// Does no I/O: follow it with a probe to learn what is installed.
     pub fn set_settings(&mut self, mut settings: Settings) {
         settings.sanitize();
         for p in &self.providers {
@@ -124,7 +171,6 @@ impl Engine {
             if st.dir != dir || st.enabled != enabled {
                 *st = State { dir, enabled, jitter_pct: st.jitter_pct, generation: st.generation + 1, ..Default::default() };
             }
-            st.detected = enabled && p.detect(&st.dir);
         }
         self.settings = settings;
     }
@@ -133,9 +179,14 @@ impl Engine {
         self.settings.refresh_min.clamp(1, 60) * 60
     }
 
-    fn job(&self, p: &Arc<dyn Provider>, kind: Kind) -> Job {
+    fn job(&mut self, p: &Arc<dyn Provider>, kind: Kind) -> Job {
+        self.next_seq += 1;
         let st = &self.states[p.info().id];
-        Job { provider: p.clone(), dir: st.dir.clone(), kind, generation: st.generation }
+        Job { provider: p.clone(), dir: st.dir.clone(), kind, generation: st.generation, seq: self.next_seq }
+    }
+
+    fn in_flight(st: &State) -> bool {
+        st.refreshing && st.last_poll.is_some_and(|t| t.elapsed().as_secs() < LEASE_SECS)
     }
 
     fn enabled(&self) -> impl Iterator<Item = &Arc<dyn Provider>> {
@@ -143,8 +194,9 @@ impl Engine {
     }
 
     /// Local collection for every enabled provider.
-    pub fn local_jobs(&self) -> Vec<Job> {
-        self.enabled().map(|p| self.job(p, Kind::Local)).collect()
+    pub fn local_jobs(&mut self) -> Vec<Job> {
+        let all: Vec<_> = self.enabled().cloned().collect();
+        all.iter().map(|p| self.job(p, Kind::Local)).collect()
     }
 
     /// Local collection for the providers whose watched folder contains a changed path.
@@ -158,9 +210,9 @@ impl Engine {
         hit.iter().map(|p| self.job(p, Kind::Local)).collect()
     }
 
-    /// Folders worth watching for changes.
+    /// Folders worth watching for changes. Pure: the caller checks which of them exist.
     pub fn watch_dirs(&self) -> Vec<PathBuf> {
-        self.enabled().filter_map(|p| p.watch_dir(&self.states[p.info().id].dir)).filter(|d| d.is_dir()).collect()
+        self.enabled().filter_map(|p| p.watch_dir(&self.states[p.info().id].dir)).collect()
     }
 
     /// Online polls that are due now. Each returned job is marked as refreshing; the caller
@@ -172,7 +224,7 @@ impl Engine {
             .filter(|p| p.has_online())
             .filter(|p| {
                 let st = &self.states[p.info().id];
-                if st.refreshing {
+                if Self::in_flight(st) {
                     return false;
                 }
                 let Some(last) = st.last_poll else { return true };
@@ -194,7 +246,7 @@ impl Engine {
             .filter(|p| p.has_online())
             .filter(|p| {
                 let st = &self.states[p.info().id];
-                !st.refreshing && st.last_poll.is_none_or(|t| t.elapsed().as_secs() >= st.backoff.max(30))
+                !Self::in_flight(st) && st.last_poll.is_none_or(|t| t.elapsed().as_secs() >= st.backoff.max(30))
             })
             .cloned()
             .collect();
@@ -203,7 +255,7 @@ impl Engine {
 
     /// Online polls for every enabled provider, ignoring the schedule (startup, `--live`).
     pub fn all_online(&mut self) -> Vec<Job> {
-        let all = self.enabled().filter(|p| p.has_online()).cloned().collect();
+        let all = self.enabled().filter(|p| p.has_online() && !Self::in_flight(&self.states[p.info().id])).cloned().collect();
         self.begin(all)
     }
 
@@ -215,44 +267,66 @@ impl Engine {
                 st.refreshing = true;
                 st.last_poll = Some(Instant::now());
                 st.dirty = false;
-                self.job(p, Kind::Online)
+                let job = self.job(p, Kind::Online);
+                self.states.get_mut(p.info().id).expect("state").online_seq = job.seq;
+                job
             })
             .collect()
     }
 
-    /// Records the outcome of a job. Results for a provider that was since disabled or
-    /// pointed at another folder are dropped.
-    pub fn finish(&mut self, job: &Job, outcome: Outcome, now: i64) {
+    /// Records the outcome of a job. Dropped without effect: results for a provider that was
+    /// since disabled or reconfigured, a local result older than one already recorded, and an
+    /// online result from a job that is no longer the one in flight.
+    pub fn finish(&mut self, job: &Job, mut outcome: Outcome, now: i64) {
         let base = self.base_secs();
         let Some(st) = self.states.get_mut(job.id()) else { return };
         if !st.enabled || st.generation != job.generation {
             return;
         }
-        if job.kind == Kind::Online {
-            st.refreshing = false;
+        match job.kind {
+            Kind::Local if job.seq < st.local_seq => return,
+            Kind::Local => st.local_seq = job.seq,
+            Kind::Online if job.seq != st.online_seq => return,
+            Kind::Online => st.refreshing = false,
         }
-        let has_local = |st: &State| st.metrics.iter().any(|m| m.source != Source::ProviderApi);
+        // A reading cannot be from the future. Without this, one bad timestamp in a log
+        // would outrank every later real reading.
+        if let Some(Ok(c)) = &mut outcome {
+            for m in &mut c.metrics {
+                m.observed_at = m.observed_at.min(now);
+            }
+        }
+        let is_api = |m: &Metric| m.source == Source::ProviderApi;
         match (job.kind, outcome) {
-            (_, None) => {}
-            (Kind::Local, Some(Ok(c))) => {
-                st.detected = true;
-                if st.error.as_ref().is_some_and(|e| e.kind == ErrorKind::NotSignedIn || st.metrics.is_empty()) {
+            // The local source is gone (or this provider has none): its numbers go with it.
+            (Kind::Local, None) => {
+                st.metrics.retain(is_api);
+                if st.error_src == Some(Kind::Local) {
                     st.error = None;
                 }
-                if st.metrics.is_empty() {
+            }
+            (Kind::Online, None) => {}
+            (Kind::Local, Some(Ok(c))) => {
+                st.detected = true;
+                if st.error_src == Some(Kind::Local) || st.error.as_ref().is_some_and(|e| e.kind == ErrorKind::NotSignedIn) {
+                    st.error = None;
+                }
+                // A complete local pass replaces what the last local pass reported.
+                st.metrics.retain(|m| is_api(m) || c.metrics.iter().any(|n| n.id == m.id));
+                if !st.metrics.iter().any(is_api) {
                     st.notes = c.notes;
                 }
                 merge(&mut st.metrics, c.metrics);
                 st.observed_at = st.metrics.iter().map(|m| m.observed_at).max().or(st.observed_at);
             }
+            // Keep the last numbers (they age into "stale"), and say what went wrong.
             (Kind::Local, Some(Err(e))) => {
-                if st.metrics.is_empty() {
-                    st.error = Some(e);
-                }
+                st.error = Some(e);
+                st.error_src = Some(Kind::Local);
             }
             (Kind::Online, Some(Ok(c))) => {
                 st.detected = true;
-                st.metrics.retain(|m| m.source != Source::ProviderApi);
+                st.metrics.retain(|m| !is_api(m));
                 merge(&mut st.metrics, c.metrics);
                 st.notes = c.notes;
                 st.account = c.account;
@@ -263,19 +337,22 @@ impl Engine {
             }
             (Kind::Online, Some(Err(e))) => {
                 st.fails = st.fails.saturating_add(1);
-                st.backoff = match e.kind {
-                    ErrorKind::RateLimited => e.retry_after_secs.unwrap_or((st.backoff * 2).max(300)),
+                st.backoff = match (e.kind, e.retry_after_secs) {
+                    // The server said when to come back: believe it, up to a day.
+                    (ErrorKind::RateLimited, Some(secs)) => secs.min(MAX_RETRY_AFTER),
+                    (ErrorKind::RateLimited, None) => (st.backoff * 2).clamp(300, MAX_BACKOFF),
                     // The first failure retries on the normal schedule; repeats back off.
-                    _ => base.saturating_mul(1 << (st.fails - 1).min(6)),
-                }
-                .min(MAX_BACKOFF);
+                    _ => base.saturating_mul(1 << (st.fails - 1).min(6)).min(MAX_BACKOFF),
+                };
+                st.error_src = Some(Kind::Online);
                 match e.kind {
                     // No login: whatever the API said before no longer describes this account.
                     ErrorKind::NotSignedIn | ErrorKind::AuthExpired => {
-                        st.metrics.retain(|m| m.source != Source::ProviderApi);
+                        st.metrics.retain(|m| !is_api(m));
                         st.notes.clear();
                         // A tool that works from local files alone is not in error for lacking an online login.
-                        st.error = (e.kind != ErrorKind::NotSignedIn || !has_local(st)).then_some(e);
+                        let has_local = !st.metrics.is_empty();
+                        st.error = (e.kind != ErrorKind::NotSignedIn || !has_local).then_some(e);
                     }
                     // Transient: keep the last numbers (they age into "stale") and say why.
                     _ => st.error = Some(e),
@@ -313,13 +390,13 @@ impl Engine {
                     status,
                     error: st.error.clone().filter(|_| st.enabled),
                     observed_at: st.observed_at,
-                    refreshing: st.refreshing,
+                    refreshing: Self::in_flight(st),
                     metrics,
                     notes: st.notes.clone(),
                 }
             })
             .collect();
-        Snapshot { schema_version: SCHEMA_VERSION, generated_at: now, app_version: self.app_version.clone(), providers }
+        Snapshot { schema_version: SCHEMA_VERSION, generated_at: now, app_version: self.app_version.clone(), stale_after_secs: stale_after, providers }
     }
 
     /// What Settings and `quotis-cli providers` show: every known provider and where it was looked for.
@@ -329,15 +406,16 @@ impl Engine {
             .map(|p| {
                 let st = &self.states[p.info().id];
                 let path = if p.info().key_env.is_some() { String::new() } else { st.dir.display().to_string() };
-                ProviderStatus { info: *p.info(), enabled: st.enabled, found: st.enabled && p.detect(&st.dir), path }
+                ProviderStatus { info: *p.info(), enabled: st.enabled, found: st.enabled && st.detected, path }
             })
             .collect()
     }
 
     /// Collects everything once and returns the snapshot: local sources inline, online
-    /// sources in parallel. Bounded by the network timeout. Used by `quotis-cli --live`.
+    /// sources in parallel. Each request has a 10 second timeout and an adapter makes at most three. Used by `quotis-cli --live`.
     pub fn collect_once(&mut self, online: bool) -> Snapshot {
         let now = crate::time::now();
+        self.probe_now();
         for job in self.local_jobs() {
             let out = job.run(now);
             self.finish(&job, out, now);

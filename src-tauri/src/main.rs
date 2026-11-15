@@ -1,5 +1,12 @@
 //! Quotis desktop shell: windows, timers and file watching around `quotis-core`.
 //! All provider logic lives in the core crate; nothing here knows any provider by name.
+//!
+//! Locking rules, in one place:
+//! - `App` (the engine) is locked only for in-memory work. Never across file, network,
+//!   database or window calls.
+//! - `PUBLISH` orders snapshots on their way out to the UI and the snapshot file.
+//! - `SAVING` makes `settings.json` have a single writer at a time.
+//! - `Watch` owns the file watcher, whose calls touch the file system.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -21,30 +28,45 @@ const LOCAL_EVERY_TICKS: u32 = 20;
 const CACHE_HEARTBEAT: Duration = Duration::from_secs(60);
 /// Most changed paths kept from one burst of file events.
 const MAX_CHANGED: usize = 1024;
-/// Settings saves run one at a time, so the file and the running state never disagree.
+/// File events waiting to be handled. Beyond this they are dropped: the periodic local
+/// re-read picks up anything missed.
+const EVENT_QUEUE: usize = 1024;
+
 static SAVING: Mutex<()> = Mutex::new(());
+static PUBLISH: Mutex<Published> = Mutex::new(Published { body: String::new(), cache_written: None });
+
+/// What was last sent out, guarded by the lock that also orders sending.
+struct Published {
+    /// The provider part of the last snapshot sent to the UI and written to disk.
+    body: String,
+    cache_written: Option<Instant>,
+}
 
 struct App {
     engine: Engine,
-    watcher: RecommendedWatcher,
-    watched: Vec<PathBuf>,
     /// Logical size the UI asked for; what the window currently shows.
     size: (f64, f64),
     /// When the app last moved the window itself, to tell its own moves from a user drag.
     placed_at: Instant,
     position_dirty: bool,
-    /// The provider part of the last snapshot sent to the UI and written to disk.
-    last_sent: String,
-    cache_written: Option<Instant>,
 }
 
 type Shared = Arc<Mutex<App>>;
 
-/// Runs `f` with the app state. A panic elsewhere must not take the whole app down, so a
-/// poisoned lock is used as it is.
+struct Watch {
+    watcher: RecommendedWatcher,
+    watched: Vec<PathBuf>,
+}
+
+fn unpoisoned<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    // A panic elsewhere must not take the whole app down, so a poisoned lock is used as it is.
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Runs `f` with the app state. `f` must not do I/O.
 fn with<R>(app: &AppHandle, f: impl FnOnce(&mut App) -> R) -> R {
     let shared = app.state::<Shared>().inner().clone();
-    let mut guard = shared.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = unpoisoned(&shared);
     f(&mut guard)
 }
 
@@ -63,51 +85,76 @@ fn spawn_jobs(app: &AppHandle, jobs: Vec<Job>) {
         emit(app, false);
     }
     for job in jobs {
-        let app = app.clone();
-        std::thread::spawn(move || run_jobs(&app, vec![job]));
+        let handle = app.clone();
+        let spawned = std::thread::Builder::new().name("quotis-poll".into()).spawn({
+            let job = job.clone();
+            move || run_jobs(&handle, vec![job])
+        });
+        if spawned.is_err() {
+            // No thread to run it: report that now, so the provider is not left "refreshing".
+            let failed = quotis_core::ProviderError::new(quotis_core::ErrorKind::Internal, "could not start a check");
+            with(app, |a| a.engine.finish(&job, Some(Err(failed)), now()));
+        }
     }
+}
+
+/// Finds out what is installed, off the lock, and records it.
+fn probe(app: &AppHandle) {
+    let results = with(app, |a| a.engine.probe()).run();
+    with(app, |a| a.engine.apply_probe(results));
 }
 
 /// Sends the snapshot to the UI and the CLI cache, but only when it changed (or, for the
 /// cache, when the heartbeat is due). `force` sends regardless.
+///
+/// The snapshot is taken and sent under one lock, so a slower thread can never deliver an
+/// older snapshot after a newer one.
 fn emit(app: &AppHandle, force: bool) {
-    let (snap, changed, write) = with(app, |a| {
-        let snap = a.engine.snapshot(now());
-        let body = serde_json::to_string(&snap.providers).unwrap_or_default();
-        let changed = force || body != a.last_sent;
-        let write = changed || a.cache_written.is_none_or(|t| t.elapsed() >= CACHE_HEARTBEAT);
-        if changed {
-            a.last_sent = body;
-        }
-        if write {
-            a.cache_written = Some(Instant::now());
-        }
-        (snap, changed, write)
-    });
+    let mut published = unpoisoned(&PUBLISH);
+    let snap = with(app, |a| a.engine.snapshot(now()));
+    let body = serde_json::to_string(&snap.providers).unwrap_or_default();
+    let changed = force || body != published.body;
     if changed {
         let _ = app.emit("usage", &snap);
+        published.body = body;
     }
-    if write {
-        if let Err(e) = cache::write(&data_dir(), &snap) {
-            eprintln!("snapshot cache: {e}");
+    if changed || published.cache_written.is_none_or(|t| t.elapsed() >= CACHE_HEARTBEAT) {
+        match cache::write(&data_dir(), &snap) {
+            // Recorded only on success, so a failed write is retried at the next emit.
+            Ok(()) => published.cache_written = Some(Instant::now()),
+            Err(e) => eprintln!("snapshot cache: {e}"),
         }
     }
 }
 
+/// Writes the current settings. The settings are read after the save lock is taken, so a
+/// queued writer can never put an older copy back.
+fn persist(app: &AppHandle) -> std::io::Result<()> {
+    let _one_at_a_time = unpoisoned(&SAVING);
+    let settings = with(app, |a| {
+        a.position_dirty = false;
+        a.engine.settings().clone()
+    });
+    settings.save(&data_dir())
+}
+
 /// Applies the current settings to everything outside the engine: watches, window flags, autostart.
 fn apply(app: &AppHandle) {
-    let settings = with(app, |a| {
-        for p in a.watched.drain(..) {
-            let _ = a.watcher.unwatch(&p);
+    let (settings, dirs) = with(app, |a| (a.engine.settings().clone(), a.engine.watch_dirs()));
+    {
+        let state = app.state::<Mutex<Watch>>();
+        let mut w = unpoisoned(&state);
+        let Watch { watcher, watched } = &mut *w;
+        for p in watched.drain(..) {
+            let _ = watcher.unwatch(&p);
         }
-        for dir in a.engine.watch_dirs() {
-            match a.watcher.watch(&dir, RecursiveMode::Recursive) {
-                Ok(()) => a.watched.push(dir),
+        for dir in dirs.into_iter().filter(|d| d.is_dir()) {
+            match watcher.watch(&dir, RecursiveMode::Recursive) {
+                Ok(()) => watched.push(dir),
                 Err(e) => eprintln!("watch {}: {e}", dir.display()),
             }
         }
-        a.engine.settings().clone()
-    });
+    }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_always_on_top(settings.always_on_top);
         #[cfg(target_os = "macos")]
@@ -133,6 +180,7 @@ fn apply(app: &AppHandle) {
     layout(app);
     let app = app.clone();
     std::thread::spawn(move || {
+        probe(&app);
         let local = with(&app, |a| a.engine.local_jobs());
         run_jobs(&app, local);
         let online = with(&app, |a| a.engine.due_online(now()));
@@ -192,15 +240,14 @@ fn spawn_event_loop(app: AppHandle, rx: mpsc::Receiver<notify::Result<notify::Ev
             let mut take = |res: notify::Result<notify::Event>| {
                 if let Ok(ev) = res {
                     // Beyond the cap the burst is already known to touch everything worth re-reading.
-                    if changed.len() < MAX_CHANGED {
-                        changed.extend(ev.paths)
-                    }
+                    let room = MAX_CHANGED.saturating_sub(changed.len());
+                    changed.extend(ev.paths.into_iter().take(room));
                 }
             };
             take(first);
             // Tools write in bursts; wait for the burst to end and handle it once.
-            let deadline = Instant::now() + Duration::from_millis(300);
             // A hard deadline: a tool that never stops writing still gets handled every 300 ms.
+            let deadline = Instant::now() + Duration::from_millis(300);
             loop {
                 let left = deadline.saturating_duration_since(Instant::now());
                 match rx.recv_timeout(left) {
@@ -226,13 +273,12 @@ fn spawn_ticker(app: AppHandle) {
         loop {
             std::thread::sleep(TICK);
             ticks = ticks.wrapping_add(1);
-            let (online, local, save) = with(&app, |a| {
+            let (online, local, dirty) = with(&app, |a| {
                 let local = if ticks.is_multiple_of(LOCAL_EVERY_TICKS) { a.engine.local_jobs() } else { Vec::new() };
-                let save = std::mem::take(&mut a.position_dirty).then(|| a.engine.settings().clone());
-                (a.engine.due_online(now()), local, save)
+                (a.engine.due_online(now()), local, a.position_dirty)
             });
-            if let Some(settings) = save {
-                if let Err(e) = settings.save(&data_dir()) {
+            if dirty {
+                if let Err(e) = persist(&app) {
                     eprintln!("settings: {e}");
                 }
             }
@@ -257,20 +303,21 @@ fn get_settings(app: AppHandle) -> Settings {
 
 #[tauri::command]
 async fn get_providers(app: AppHandle) -> Vec<ProviderStatus> {
+    probe(&app);
     with(&app, |a| a.engine.statuses())
 }
 
 #[tauri::command]
 async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Vec<ProviderStatus>, String> {
     settings.sanitize();
-    let _one_at_a_time = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-    // The window position belongs to the app, not the Settings form.
-    settings.position = with(&app, |a| a.engine.settings().position);
-    settings.save(&data_dir()).map_err(|e| e.to_string())?;
-    let statuses = with(&app, |a| {
+    with(&app, |a| {
+        // The window position belongs to the app, not the Settings form.
+        settings.position = a.engine.settings().position;
         a.engine.set_settings(settings.clone());
-        a.engine.statuses()
     });
+    persist(&app).map_err(|e| e.to_string())?;
+    probe(&app);
+    let statuses = with(&app, |a| a.engine.statuses());
     let _ = app.emit("settings", &settings);
     let handle = app.clone();
     app.run_on_main_thread(move || apply(&handle)).map_err(|e| e.to_string())?;
@@ -350,17 +397,13 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let settings = Settings::load(&data_dir());
-            let (tx, rx) = mpsc::channel();
-            app.manage(Arc::new(Mutex::new(App {
-                engine: Engine::new(settings),
-                watcher: notify::recommended_watcher(tx)?,
-                watched: Vec::new(),
-                size: (200.0, 32.0),
-                placed_at: Instant::now(),
-                position_dirty: false,
-                last_sent: String::new(),
-                cache_written: None,
-            })));
+            // Bounded: a tool writing faster than Quotis reads cannot grow this without limit.
+            let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE);
+            let watcher = notify::recommended_watcher(move |event| {
+                let _ = tx.try_send(event);
+            })?;
+            app.manage(Mutex::new(Watch { watcher, watched: Vec::new() }));
+            app.manage(Arc::new(Mutex::new(App { engine: Engine::new(settings), size: (200.0, 32.0), placed_at: Instant::now(), position_dirty: false })));
             if let Some(w) = app.get_webview_window("main") {
                 // Follow the user across virtual desktops and Spaces.
                 let _ = w.set_visible_on_all_workspaces(true);

@@ -4,6 +4,21 @@
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const money = { usd: new Intl.NumberFormat("en", { style: "currency", currency: "USD" }), cny: new Intl.NumberFormat("en", { style: "currency", currency: "CNY" }) };
 
+/**
+ * Re-judges every metric's freshness for `now`, by the same rule the engine uses. A snapshot
+ * was fresh when it was made; the window may have reset, or the numbers aged, while it sat
+ * on screen.
+ */
+export function refresh(snap, now) {
+  if (!snap?.providers) return snap;
+  const budget = Math.max(60, snap.stale_after_secs ?? 900);
+  const judge = (m) => {
+    if (m.resets_at != null && m.resets_at <= now && m.observed_at < m.resets_at) return "expired";
+    return m.observed_at > now + 300 || now - m.observed_at > budget ? "stale" : "fresh";
+  };
+  return { ...snap, providers: snap.providers.map((p) => ({ ...p, metrics: p.metrics.map((m) => ({ ...m, freshness: judge(m) })) })) };
+}
+
 /** Providers worth a row: anything that is connected or has a problem to report. */
 export const visible = (snap) => (snap?.providers ?? []).filter((p) => p.status === "connected" || p.status === "error");
 
@@ -20,7 +35,8 @@ const clamp = (n) => Math.min(100, Math.max(0, n));
 /** ok / warn / bad by how much is left; "unknown" when the number can no longer be trusted. */
 export function level(m, warnBelow = 20) {
   const left = percentLeft(m);
-  if (left == null || m.freshness === "expired") return "unknown";
+  // A number that may no longer be true gets no colour: green would vouch for it.
+  if (left == null || m.freshness !== "fresh") return "unknown";
   if (left <= warnBelow / 2) return "bad";
   return left <= warnBelow ? "warn" : "ok";
 }
@@ -52,7 +68,9 @@ export function describe(m, now, showUsed = false) {
   const tail = [reset, stale ? "stale" : ""].filter(Boolean).join(" · ");
   if (left != null) {
     const pct = showUsed ? 100 - left : left;
-    const exact = m.unit !== "percent" && Number.isFinite(m.remaining) ? ` (${amount(m.remaining, m.unit)})` : "";
+    // The amount in brackets must be the one the percentage is about.
+    const sum = showUsed ? (Number.isFinite(m.used) ? m.used : m.total - m.remaining) : m.remaining;
+    const exact = m.unit !== "percent" && Number.isFinite(sum) ? ` (${amount(sum, m.unit)})` : "";
     return { value: `${Math.round(pct)}%`, detail: `${showUsed ? "used" : "left"}${exact}${tail ? ` · ${tail}` : ""}`, stale };
   }
   if (m.category === "provider_quota" && Number.isFinite(m.remaining)) return { value: amount(m.remaining, m.unit), detail: `left${tail ? ` · ${tail}` : ""}`, stale };
@@ -91,6 +109,7 @@ export function summarize(snap, settings = {}, now = Date.now() / 1000) {
   let state = "ok";
   let value;
   let lvl = "unknown";
+  let stale = false;
   const errors = shown.filter((x) => x.error);
   if (errors.length && errors.length === shown.length && errors.every((x) => x.error.kind === "offline")) state = "offline";
   else if (p.status === "not_detected") state = "disconnected";
@@ -100,6 +119,7 @@ export function summarize(snap, settings = {}, now = Date.now() / 1000) {
     const d = describe(m, now, settings.show_used);
     value = d.value;
     lvl = level(m, warnBelow);
+    stale = d.stale;
     if (state === "ok" && warnBelow > 0 && (lvl === "warn" || lvl === "bad")) state = "warning";
   } else if (state !== "ok") {
     value = { offline: "Offline", denied: "No access", disconnected: "Sign in", error: "Error" }[state];
@@ -116,5 +136,5 @@ export function summarize(snap, settings = {}, now = Date.now() / 1000) {
       return { id: x.id, level: t ? level(t, warnBelow) : x.error ? "bad" : "unknown" };
     });
   const what = m ? `${m.label} ${describe(m, now, settings.show_used).detail}` : p.error?.message ?? p.notes[0] ?? "";
-  return { state, name: p.name, value, level: lvl, refreshing, others, title: `${p.name}: ${value} ${what}`.trim(), provider: p.id };
+  return { state, name: p.name, value, level: lvl, stale, refreshing, others, title: `${p.name}: ${value} ${what}`.trim(), provider: p.id };
 }

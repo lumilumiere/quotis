@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { describe, level, percentLeft, summarize, visible } from "./format.js";
+import { describe, level, percentLeft, refresh, summarize, visible } from "./format.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -13,6 +13,7 @@ const BAR_H = 32;
 const OPEN_W = 300;
 const MAX_H = 560;
 
+let received = null;
 let snap = null;
 let settings = {};
 let expanded = false;
@@ -69,9 +70,12 @@ function providerCard(p, now) {
 
 function render() {
   const now = Date.now() / 1000;
+  // `received` is what the backend sent; `snap` is that, judged for this moment.
+  snap = refresh(received, now);
   const s = summarize(snap, settings, now);
   island.dataset.state = s.state;
   island.toggleAttribute("data-refreshing", s.refreshing);
+  island.toggleAttribute("data-stale", s.stale);
   $("pill-dot").dataset.level = s.state === "none" ? "unknown" : ["offline", "denied", "disconnected", "error"].includes(s.state) ? "bad" : s.level;
   $("pill-name").textContent = s.name;
   $("pill-value").textContent = s.value;
@@ -92,7 +96,9 @@ function render() {
 /** Makes the island, and the window around it, the size its content needs. */
 async function resize() {
   const open = isOpen();
-  const target = open ? { w: OPEN_W, h: Math.min(BAR_H + list.scrollHeight, MAX_H) } : { w: Math.ceil($("pill-content").offsetWidth) + 26, h: BAR_H };
+  // Never taller than the screen can show: the list scrolls inside whatever height is left.
+  const roomy = Math.max(BAR_H + 60, Math.min(MAX_H, (screen.availHeight || MAX_H) - 24));
+  const target = open ? { w: OPEN_W, h: Math.min(BAR_H + list.scrollHeight, roomy) } : { w: Math.ceil($("pill-content").offsetWidth) + 26, h: BAR_H };
   island.toggleAttribute("data-open", open);
   pill.setAttribute("aria-expanded", String(open));
   list.inert = !open;
@@ -191,7 +197,7 @@ $("refresh").onclick = () => invoke("refresh");
 $("quit").onclick = () => invoke("quit");
 
 listen("usage", (e) => {
-  snap = e.payload;
+  received = e.payload;
   render();
 });
 listen("settings", (e) => applySettings(e.payload));
@@ -199,5 +205,5 @@ listen("settings", (e) => applySettings(e.payload));
 setInterval(() => document.visibilityState === "visible" && render(), 30_000);
 
 const [s, usage] = await Promise.all([invoke("get_settings"), invoke("get_usage")]);
-snap = usage;
+received = usage;
 applySettings(s);
