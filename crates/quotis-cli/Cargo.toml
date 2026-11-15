@@ -1,0 +1,10 @@
+[package]
+name = "quotis-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only command-line interface to Quotis usage snapshots"
+
+[dependencies]
+quotis-core = { path = "../quotis-core" }
+serde_json = "1"

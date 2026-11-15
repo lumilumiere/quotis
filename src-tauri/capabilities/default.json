@@ -1,6 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
+  "description": "The overlay and Settings windows may listen for events, drag the overlay and close themselves. Nothing else: no shell, file system or HTTP access.",
   "windows": ["main", "settings"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-start-resize-dragging","core:window:allow-close"]
+  "permissions": ["core:event:default", "core:window:allow-start-dragging", "core:window:allow-close"]
 }

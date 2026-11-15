@@ -2,68 +2,109 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-const TOOLS = [
-  ["claude", "Claude Code", "Sign in to Claude Code with a Pro or Max plan. Shows your exact 5-hour and weekly limits."],
-  ["codex", "Codex", "Sign in to the Codex CLI with ChatGPT. Limits appear after your first Codex message."],
-  ["copilot", "GitHub Copilot", "Sign in to Copilot in VS Code or a JetBrains IDE. Shows your monthly premium requests left and when they reset."],
-  ["cursor", "Cursor", "Sign in to the Cursor app. Shows how much of your plan's included usage is left this billing cycle."],
-  ["gemini", "Gemini CLI", "Shows tokens used in the last 5 hours and 24 hours (Gemini doesn't store its quota locally)."],
-  ["qwen", "Qwen Code", "Shows tokens used in the last 5 hours and 24 hours, like Gemini CLI."],
-  ["opencode", "opencode", "Shows tokens and cost in the last 5 hours and 24 hours. opencode uses your own API keys, so there's no plan limit."],
-];
 const $ = (id) => document.getElementById(id);
+const root = document.documentElement;
 let settings;
+let providers = [];
 
-$("tools").innerHTML = TOOLS.map(([key, name, hint]) => `
-  <div class="space-y-2 px-3.5 py-3">
-    <label class="flex items-center justify-between gap-3">
-      <span>${name} <span id="st-${key}" class="ml-1 text-[11px]"></span></span>
-      <input type="checkbox" data-key="${key}" data-field="enabled" class="lg-switch" />
-    </label>
-    <input data-key="${key}" data-field="dir" spellcheck="false" placeholder="Folder (auto-detect)"
-      class="lg-field w-full px-2.5 py-1.5 font-mono text-[11px] placeholder:font-sans" />
-    <p class="text-[11px] leading-relaxed text-ink/60">${hint}</p>
-    <p id="path-${key}" class="truncate font-mono text-[10px] text-ink/50"></p>
-  </div>`).join("");
+function el(tag, attrs = {}, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k === "text") n.textContent = v;
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  n.append(...children.filter(Boolean));
+  return n;
+}
 
-function showStatus(status) {
-  for (const [key] of TOOLS) {
-    const s = status[key];
-    const on = settings[key].enabled;
-    const badge = $(`st-${key}`);
-    badge.textContent = !on ? "Off" : s.found ? "Connected" : "Not found";
-    badge.className = `ml-1 text-[11px] ${!on ? "text-ink/40" : s.found ? "text-ok" : "text-warn"}`;
-    $(`path-${key}`).textContent = s.path;
-    $(`path-${key}`).title = s.path;
+const option = (value, text) => el("option", { value, text });
+const cfg = (p) => settings.providers[p.id] ?? { enabled: p.default_enabled, dir: "" };
+
+/** The provider list comes from the backend registry, so a new adapter appears here by itself. */
+function buildTools() {
+  $("tools").replaceChildren(
+    ...providers.map((p) => {
+      const where = p.endpoint ? `Contacts ${p.endpoint}${p.documented ? "" : " (undocumented endpoint, may change)"}.` : "Local files only, no network.";
+      return el(
+        "div",
+        { class: "space-y-2 px-3.5 py-3" },
+        el(
+          "label",
+          { class: "flex items-center justify-between gap-3" },
+          el("span", {}, el("span", { text: p.name }), el("span", { id: `st-${p.id}`, class: "ml-2 text-[11px]" })),
+          el("input", { type: "checkbox", class: "lg-switch", "data-id": p.id, "data-field": "enabled" }),
+        ),
+        !p.key_env &&
+          el("input", {
+            class: "lg-field w-full px-2.5 py-1.5 font-mono text-[11px] placeholder:font-sans",
+            "data-id": p.id,
+            "data-field": "dir",
+            spellcheck: "false",
+            placeholder: "Folder (auto-detect)",
+            "aria-label": `${p.name} folder`,
+          }),
+        el("p", { class: "text-[11px] leading-relaxed text-ink/60", text: `${p.hint} ${where}` }),
+        !p.key_env && el("p", { id: `path-${p.id}`, class: "truncate font-mono text-[10px] text-ink/60" }),
+      );
+    }),
+  );
+  $("pill_provider").replaceChildren(option("", "Automatic"), ...providers.map((p) => option(p.id, p.name)));
+}
+
+function showStatus(list) {
+  providers = list;
+  for (const p of providers) {
+    const badge = $(`st-${p.id}`);
+    if (!badge) continue;
+    badge.textContent = !p.enabled ? "Off" : p.found ? "Connected" : "Not found";
+    badge.className = `ml-2 text-[11px] ${!p.enabled ? "text-ink/60" : p.found ? "text-ok" : "text-warn"}`;
+    const path = $(`path-${p.id}`);
+    if (path) path.textContent = path.title = p.path;
   }
 }
 
-const setGlass = (pct) => ($("glass_out").value = `${pct}%`);
+const FIELDS = ["mode", "display", "pill_provider", "theme", "auto_collapse_secs", "warn_below", "refresh_min", "opacity"];
+const TOGGLES = ["hover_expand", "glass", "always_on_top", "autostart"];
+const LIMITS = { auto_collapse_secs: [0, 600], warn_below: [0, 90], refresh_min: [1, 60], opacity: [20, 100] };
+
+function applyTheme() {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = settings.theme === "auto" ? (dark ? "dark" : "light") : settings.theme;
+}
 
 function fill() {
-  for (const el of document.querySelectorAll("[data-key]")) {
-    const v = settings[el.dataset.key][el.dataset.field];
-    el.type === "checkbox" ? (el.checked = v) : (el.value = v);
+  for (const input of document.querySelectorAll("[data-id]")) {
+    const v = cfg(providers.find((p) => p.id === input.dataset.id))[input.dataset.field];
+    if (input.type === "checkbox") input.checked = v;
+    else input.value = v;
   }
-  $("always_on_top").checked = settings.always_on_top;
+  for (const id of FIELDS) $(id).value = settings[id];
+  for (const id of TOGGLES) $(id).checked = settings[id];
   $("show_used").value = settings.show_used ? "used" : "left";
-  $("glass_opacity").value = settings.glass_opacity;
-  setGlass(settings.glass_opacity);
-  $("blur").checked = settings.blur;
-  $("refresh").value = settings.claude_refresh_min;
+  $("opacity_out").value = `${settings.opacity}%`;
+  applyTheme();
+}
+
+function read() {
+  for (const input of document.querySelectorAll("[data-id]")) {
+    const id = input.dataset.id;
+    settings.providers[id] = { ...cfg(providers.find((p) => p.id === id)), ...settings.providers[id] };
+    settings.providers[id][input.dataset.field] = input.type === "checkbox" ? input.checked : input.value.trim();
+  }
+  for (const id of FIELDS) {
+    const limit = LIMITS[id];
+    settings[id] = limit ? Math.min(limit[1], Math.max(limit[0], Math.round(Number($(id).value) || 0))) : $(id).value;
+  }
+  for (const id of TOGGLES) settings[id] = $(id).checked;
+  settings.show_used = $("show_used").value === "used";
 }
 
 let flash;
 async function save() {
-  for (const el of document.querySelectorAll("[data-key]")) {
-    settings[el.dataset.key][el.dataset.field] = el.type === "checkbox" ? el.checked : el.value.trim();
-  }
-  settings.always_on_top = $("always_on_top").checked;
-  settings.show_used = $("show_used").value === "used";
-  settings.glass_opacity = Number($("glass_opacity").value);
-  settings.blur = $("blur").checked;
-  settings.claude_refresh_min = Math.min(60, Math.max(1, Math.round(Number($("refresh").value) || 5)));
-  $("refresh").value = settings.claude_refresh_min;
+  read();
+  fill();
   try {
     showStatus(await invoke("save_settings", { settings }));
     $("saved").textContent = "Saved";
@@ -75,14 +116,20 @@ async function save() {
 }
 
 document.addEventListener("change", save);
-
-$("glass_opacity").addEventListener("input", () => {
-  const pct = Number($("glass_opacity").value);
-  setGlass(pct);
-  emit("settings", { ...settings, glass_opacity: pct });
+// Live preview while dragging the slider; saved when released.
+$("opacity").addEventListener("input", () => {
+  $("opacity_out").value = `${$("opacity").value}%`;
+  emit("settings", { ...settings, opacity: Number($("opacity").value) });
 });
 $("close").onclick = () => getCurrentWindow().close();
+addEventListener("keydown", (e) => e.key === "Escape" && getCurrentWindow().close());
 
-settings = await invoke("get_settings");
+const [s, list, displays] = await Promise.all([invoke("get_settings"), invoke("get_providers"), invoke("list_displays")]);
+settings = s;
+providers = list;
+buildTools();
+$("display").replaceChildren(option("", "Primary"), ...displays.map((d) => option(d, d)));
+// A saved screen that is unplugged stays selectable, so the choice survives until it returns.
+if (settings.display && !displays.includes(settings.display)) $("display").append(option(settings.display, `${settings.display} (not connected)`));
 fill();
-showStatus(await invoke("get_status"));
+showStatus(list);
