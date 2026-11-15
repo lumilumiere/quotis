@@ -1,0 +1,20 @@
+# Secret scanning for Quotis. The default rules apply; the only exceptions are the fake
+# credentials the tests plant on purpose to prove they never leak into output.
+title = "Quotis"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake credentials used as test fixtures. Each is listed exactly; nothing is allowed by path or pattern."
+regexes = [
+  '''gho_FAKE_SANDBOX_TOKEN''',
+  '''gho_enterprise''',
+  '''gho_a"''',
+  '''sk-FAKE-TOKEN-123''',
+  '''sk-secret-token''',
+  '''sk-test''',
+  '''acct-FAKE''',
+  '''eyJzdWIiOiJhdXRoMHx1c2VyXzEyMyJ9''',
+  '''eyJzdWIiOiJhdXRoMHxhO2I9YyJ9''',
+]
