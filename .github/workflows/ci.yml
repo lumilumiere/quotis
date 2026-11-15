@@ -1,0 +1,96 @@
+# Checks every push and pull request: formatting, lints, tests on all three desktop systems,
+# dependency advisories and leaked secrets. No provider credentials are used anywhere here;
+# live-provider tests are never run in CI.
+name: CI
+
+on:
+  push:
+    branches: [main, quotis-2.0]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run build
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, macos-13, ubuntu-22.04] # macos-latest = Apple Silicon, macos-13 = Intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Frontend tests and build
+        run: |
+          npm test
+          npm run build
+      - name: Rust tests
+        run: cargo test --workspace --locked
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          cargo run -q -p quotis-cli -- --version
+          cargo run -q -p quotis-cli -- providers --json > /dev/null
+          # With no desktop app running there is no snapshot: exit code 3 is the contract.
+          set +e
+          QUOTIS_DATA_DIR="$RUNNER_TEMP/empty" cargo run -q -p quotis-cli -- status --json
+          test $? -eq 3
+
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - name: npm advisories
+        run: npm audit --audit-level=high
+      - name: Rust advisories
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

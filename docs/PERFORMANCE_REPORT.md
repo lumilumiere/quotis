@@ -1,0 +1,71 @@
+# Performance report
+
+Measured on one Windows machine with fixture data. These are measurements of that setup, not guarantees. Nothing was measured on macOS or Linux, and v0.2.1 was not profiled before the rewrite, so there is no before/after comparison.
+
+## Setup
+
+| | |
+|---|---|
+| Machine | Laptop, Intel Core i5-1135G7 (4 cores / 8 threads, 2.4 GHz), 15.7 GB RAM |
+| OS | Windows 11 Pro 10.0.26300 |
+| Webview | Microsoft Edge WebView2 157.0.4341.46 |
+| Build | `quotis-2.0` branch, release profile (`opt-level = "s"`, LTO, 1 codegen unit, stripped) |
+| Date | 2026-11-15 |
+| Data | Fixture folders: Codex session log with rate limits, Gemini token log. Other providers pointed at an empty folder, so **no network requests were made** during measurement |
+| Mode | Island, collapsed, matte, dark |
+| Other load | A game (League of Legends) was running in the foreground. CPU time is measured per process, so this adds noise to timings but not to CPU-seconds |
+
+## Method
+
+`measure.ps1` (a throwaway PowerShell script) starts the app, waits for `snapshot.json` to appear, lets it settle for 20 seconds, then samples the whole process tree (the app and its WebView2 child processes) twice, 60 seconds apart. CPU is the difference in accumulated CPU time. Memory is the sum over the tree at the second sample.
+
+## Results
+
+| Metric | Run 1 | Run 2 | Target | Met? |
+|---|---|---|---|---|
+| Time from launch to first snapshot written | 1,666 ms | 649 ms | minimise | n/a |
+| Idle CPU, whole tree, % of one core | 0.47% | 0.34% | under 1% | **Yes** |
+| Idle CPU, whole tree, % of all 8 threads | 0.06% | 0.04% | | |
+| Idle CPU seconds in 60 s: whole tree / app process alone | 0.281 / 0.031 | 0.203 / not recorded | | |
+| Private memory, whole tree (7 processes) | 143.9 MB | 145.1 MB | under 120 MB | **No** |
+| Private memory, Quotis process alone | 5.4 MB | 5.4 MB | | |
+| Working set, summed over the tree | 355.8 MB | 349.9 MB | | see note |
+
+Run 1 was the first launch of this build (cold); run 2 followed immediately (warm).
+
+**Memory.** The Quotis process itself uses about 5 MB of private memory. The other ~140 MB is WebView2's six processes (browser, GPU, renderer, utility, crash handler). The 120 MB target is missed by about 25 MB on this machine. The summed working set (about 350 MB) overstates real use because pages shared between the WebView2 processes are counted once per process.
+
+**What Quotis controls here:** the page has no framework and no images, and does nothing while idle. What it does not control: the fixed cost of a WebView2 instance. Getting under 120 MB would mean not using a webview for the collapsed pill (a native window), which is a larger change than 2.0 took on.
+
+| CLI (release build, 10 runs each) | Median | Max |
+|---|---|---|
+| `quotis-cli status` (reads the snapshot file) | 14 ms | 228 ms (first run) |
+| `quotis-cli snapshot --live --offline` (reads the fixture logs itself) | 16 ms | 21 ms |
+
+| Size | |
+|---|---|
+| `quotis.exe` (desktop, not bundled) | 8.9 MB |
+| `quotis-cli.exe` | 3.2 MB |
+| Frontend bundle | 8.0 kB JS + 18.7 kB CSS (overlay), 3.6 kB JS (Settings), plus 15.7 kB shared Tauri API |
+
+## What changed that affects cost (by design, not measured against 0.2.1)
+
+| 0.2.1 | 2.0 |
+|---|---|
+| Blur thread woke every 50 ms and sampled the screen | Removed. No screen access at all |
+| Every file event re-read up to 20 whole Codex logs and whole token logs | Reads the last 256 KB of the newest logs; token logs are read from a saved offset |
+| UI re-rendered every 15 s | Re-renders on change, plus a 30 s tick for countdowns |
+| SQLite query on every UI update, under the state lock | On file change and every 5 minutes, outside the lock |
+
+## Not measured
+
+- **Animation frame rate.** The expand/collapse transition was checked for correct start and end states, not profiled for dropped frames.
+- **Energy.** No power measurement was taken.
+- **Cost with real providers and large real logs.** Fixture logs are tiny. Network polls add one HTTPS request per online provider per 5 minutes.
+- **Collection overhead on large log folders.** The incremental reader is unit-tested for correctness, not benchmarked.
+- **macOS and Linux.** Nothing.
+- **Glass mode and expanded state** idle cost.
+
+## Reproducing
+
+Build with `npx tauri build --no-bundle`, point `QUOTIS_DATA_DIR` at a folder containing a `settings.json`, and sample the process tree with any process monitor after the app has been idle for 20 seconds.
