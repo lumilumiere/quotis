@@ -24,7 +24,9 @@ pub fn path(dir: &Path) -> PathBuf {
 
 /// Writes via a temp file and rename, so a reader never sees a half-written file.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    // Unique per write: several threads may write the same file at once.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_extension(format!("tmp{}-{}", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -89,6 +91,22 @@ mod tests {
         assert_eq!(parse(r#"{"schema_version":1}"#), Err(CacheError::Malformed));
         assert_eq!(parse(r#"{"schema_version":99,"generated_at":1,"app_version":"x","providers":[]}"#), Err(CacheError::Incompatible(99)));
         assert_eq!(parse(r#"{"schema_version":1,"generated_at":1,"app_version":"x","providers":[{"id":5}]}"#), Err(CacheError::Malformed));
+    }
+
+    #[test]
+    fn concurrent_writers_all_succeed() {
+        let dir = temp_dir("cache-race");
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    for _ in 0..50 {
+                        write(&dir, &snap()).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(read(&dir), Ok(snap()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temp files left behind");
     }
 
     #[cfg(unix)]
