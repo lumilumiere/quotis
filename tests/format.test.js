@@ -8,6 +8,17 @@ const tokens = (over = {}) => ({ id: "tokens_5h", label: "5h", category: "local_
 const provider = (over = {}) => ({ id: "claude", name: "Claude Code", vendor: "Anthropic", status: "connected", refreshing: false, metrics: [quota()], notes: [], ...over });
 const snap = (...providers) => ({ schema_version: 1, generated_at: NOW, app_version: "2.0.0", providers });
 
+test("partial totals remain visible as lower bounds in rows and the collapsed pill", () => {
+  const m = tokens({ used: 0, qualification: "partial: unknown log format; lower bound" });
+  const d = describe(m, NOW);
+  assert.equal(d.value, "≥0");
+  assert.match(d.detail, /partial.*lower bound/);
+  const p = summarize(snap(provider({ id: "gemini", name: "Gemini CLI", metrics: [m] })), {}, NOW);
+  assert.equal(p.value, "≥0");
+  assert.match(p.title, /partial.*lower bound/);
+  assert.equal(p.level, "unknown");
+});
+
 test("percentLeft only exists for a provider-reported allowance", () => {
   assert.equal(percentLeft(quota()), 62);
   assert.equal(percentLeft(quota({ unit: "usd", remaining: 5, total: 20 })), 25);

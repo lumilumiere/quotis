@@ -31,12 +31,13 @@ export function percentLeft(m) {
 }
 
 const clamp = (n) => Math.min(100, Math.max(0, n));
+const partial = (m) => m.qualification?.startsWith("partial:");
 
 /** ok / warn / bad by how much is left; "unknown" when the number can no longer be trusted. */
 export function level(m, warnBelow = 20) {
   const left = percentLeft(m);
   // A number that may no longer be true gets no colour: green would vouch for it.
-  if (left == null || m.freshness !== "fresh") return "unknown";
+  if (left == null || m.freshness !== "fresh" || partial(m)) return "unknown";
   if (left <= warnBelow / 2) return "bad";
   return left <= warnBelow ? "warn" : "ok";
 }
@@ -65,6 +66,7 @@ export function describe(m, now, showUsed = false) {
   if (m.freshness === "expired") return { value: "reset", detail: "updating…", stale: true };
   const reset = m.resets_at ? until(m.resets_at, now) : "";
   const stale = m.freshness === "stale";
+  if (partial(m) && m.category !== "local_usage") return { value: "partial", detail: "incomplete reading", stale };
   const tail = [reset, stale ? "stale" : ""].filter(Boolean).join(" · ");
   if (left != null) {
     const pct = showUsed ? 100 - left : left;
@@ -75,13 +77,13 @@ export function describe(m, now, showUsed = false) {
   }
   if (m.category === "provider_quota" && Number.isFinite(m.remaining)) return { value: amount(m.remaining, m.unit), detail: `left${tail ? ` · ${tail}` : ""}`, stale };
   const est = m.category === "estimated_cost" ? "est. " : "";
-  return { value: amount(m.used, m.unit), detail: `${est}in ${m.label}${stale ? " · stale" : ""}`, stale };
+  return { value: `${partial(m) ? "≥" : ""}${amount(m.used, m.unit)}`, detail: `${est}in ${m.label}${partial(m) ? " · partial lower bound" : ""}${stale ? " · stale" : ""}`, stale };
 }
 
 /** The tightest trustworthy quota of a provider: the metric a glance should show. */
 export function tightest(p) {
   return p.metrics
-    .filter((m) => percentLeft(m) != null && m.freshness !== "expired")
+    .filter((m) => percentLeft(m) != null && m.freshness !== "expired" && !partial(m))
     .reduce((worst, m) => (worst == null || percentLeft(m) < percentLeft(worst) ? m : worst), null);
 }
 
@@ -135,6 +137,7 @@ export function summarize(snap, settings = {}, now = Date.now() / 1000) {
       const t = tightest(x);
       return { id: x.id, level: t ? level(t, warnBelow) : x.error ? "bad" : "unknown" };
     });
-  const what = m ? `${m.label} ${describe(m, now, settings.show_used).detail}` : p.error?.message ?? p.notes[0] ?? "";
+  const displayed = m ?? p.metrics.find((x) => x.freshness !== "expired");
+  const what = displayed ? `${displayed.label} ${describe(displayed, now, settings.show_used).detail}` : p.error?.message ?? p.notes[0] ?? "";
   return { state, name: p.name, value, level: lvl, stale, refreshing, others, title: `${p.name}: ${value} ${what}`.trim(), provider: p.id };
 }
