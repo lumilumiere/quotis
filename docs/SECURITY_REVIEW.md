@@ -6,9 +6,32 @@ Status of every security-relevant finding from the two independent Codex reviews
 |---|---|---|---|
 | [0001 baseline](reviews/0001-baseline-codex.md) | `f80bc40` (v0.2.1) | 18 (14 medium, 4 low) | 0 / 0 |
 | [0002 implementation](reviews/0002-implementation-codex.md) | `f0b3ea5` | 16 new (13 medium, 3 low); of the 18 baseline findings 7 fixed, 10 partial, 1 not fixed | 0 / 0 |
-| 0003 fix verification | `cbcdaa0` | **Not completed.** Codex reached its usage limit before writing a report | |
+| [0003 fix verification](reviews/0003-fix-verification-codex.md) | `cd8d662` | Of N01-N16: 6 verified fixed, 9 partial, 1 accepted risk judged reasonable. 7 new medium regressions (R01-R07). **Judged release-blocking** | 0 / 0 |
 
-No finding was rated critical or high by the reviewer. **The dispositions below are the implementer's own and have not been independently confirmed**, because the follow-up review did not complete. Treat "Fixed" as "fixed and tested by the implementer".
+No finding in any review was rated critical or high. Review 0003 judged the fix set release-blocking on R01, R02/R06, R03/R04 and N02. Those were repaired afterwards in `1ab7658`; **that repair has not itself been independently reviewed.** Treat "Fixed" below as "fixed and tested by the implementer" unless the 0003 column says "Verified".
+
+## Review 0003: regressions and partial fixes, and what was done
+
+| ID | Codex 0003 | Now (`1ab7658`) | Guarding test |
+|---|---|---|---|
+| R01 | Clamping a future timestamp to "now" made a bad record look like the freshest reading | Fixed: a pass containing a reading more than 5 minutes in the future is rejected as a whole and reported; nothing is re-dated | `a_future_dated_local_reading_is_never_believed_however_often_it_is_reread` |
+| R02 | A "lower bound" warning vanished on the next pass | Fixed: each file remembers missing coverage until the gap is older than every window | `a_partial_total_stays_marked_partial_on_later_passes` |
+| R06 | The per-folder entry cap could silently drop the only recent log | Fixed: any cap hit during the walk (entries, depth, file count) marks totals as a lower bound | `walk_is_capped_and_ignores_other_files` |
+| R03 | A failed settings save had already changed the running app; a failed drag save was not retried | Fixed: the file is written first and the app changes only if that succeeds; the drag mark is cleared only after a successful write | Checked by hand in the running app |
+| R04 | Overlapping saves could announce an older one last | Fixed: the whole save (write, apply, detect, announce) runs under the save lock | Checked by hand: two overlapping saves announced in order, runtime, file and backup all agree |
+| N02 | The backup was the save before last, so a just-made "off" could be lost | Fixed: the backup is a second copy of the latest save | `a_damaged_settings_file_falls_back_to_the_last_good_one` (now starts with the provider on) |
+| R05 | Leases let jobs that hang every time pile up without limit | Fixed: at most 3 outstanding online jobs per provider; a written-off job is reported as "a check did not finish" | `a_collector_that_hangs_every_time_cannot_pile_up_jobs` |
+| R07 | An unreachable folder was treated as gone and its numbers deleted | Fixed: "not there" and "could not check" are told apart; the latter is an error that keeps the last numbers | `existence_distinguishes_absent_from_unknown` |
+| N01 | A failed cache write after a recent success waited for the heartbeat | Fixed: retried on the next emit | Shell code, no automated test |
+| N03 | A same-length rewrite sharing its first 64 bytes was missed | Fixed: size unchanged with a new modification time also restarts the read | `a_same_length_rewrite_that_keeps_its_first_bytes_restarts` |
+| N04 | An online success cleared a local error; an unreadable Codex log became "no data yet"; invalid token lines read as a fresh zero | First two fixed (`an_online_success_does_not_hide_a_local_failure`). **Invalid token lines are still skipped silently**: a tool that changes its log format reads as zero usage (risk R7) | |
+| N05 | See R01 | Fixed with R01 | |
+| N08 | No total work budget across the whole walk | **Partial.** Per-folder, depth and file caps now report truncation; there is still no overall time budget | |
+| N10 | `Retry-After` over a day was shortened; HTTP dates unparsed; no overall deadline; Keychain call has no timeout | `Retry-After` honoured up to a week. **HTTP dates, an overall deadline and a Keychain timeout are not done** | `rate_limit_backs_off_and_keeps_last_numbers` |
+| N11 | A job past its lease was still accepted if no newer one had started | **Accepted**: such an answer is real data, and accepting it clears the timeout message. No result older than a newer job is ever accepted | |
+| N16 | No test drives the real DOM renderer; shell races have no automated test | **Not done.** Covered only by the by-hand WebView checks | |
+| N06, N07, N09, N13, N14, N15 | Verified fixed by Codex | Unchanged | |
+| N12 | Accepted risk judged reasonable by Codex | Unchanged | |
 
 ## Review 0002: new findings
 
