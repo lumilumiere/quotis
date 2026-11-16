@@ -44,10 +44,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     fn fixture() -> (Shared, std::path::PathBuf) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "quotis-shell-{}-{}",
+            "quotis-shell-{}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let app = App { engine: Engine::with_providers(Settings::default(), vec![]), size: (200.0, 32.0), placed_at: Instant::now(), position_dirty: false };
