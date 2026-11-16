@@ -129,8 +129,12 @@ $("opacity").addEventListener("input", () => {
   $("opacity_out").value = `${$("opacity").value}%`;
   emit("settings", { ...settings, opacity: Number($("opacity").value) });
 });
-$("close").onclick = () => getCurrentWindow().close();
-addEventListener("keydown", (e) => e.key === "Escape" && getCurrentWindow().close());
+const closeSettings = async () => {
+  await saving;
+  return getCurrentWindow().close();
+};
+$("close").onclick = closeSettings;
+addEventListener("keydown", (e) => e.key === "Escape" && closeSettings());
 
 await listen("usage", (event) => {
   receivedUsage = newestUsage(receivedUsage, event.payload);

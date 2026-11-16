@@ -27,11 +27,13 @@ async function initialize(event, usage, saves = false) {
     return ({ get_settings:settings, get_providers:[provider], list_displays:[], get_usage:usage })[name];
   };
   let callback;
+  let closeCalls = 0;
+  let keydown;
   const listen = async (_, handler) => { callback = handler; if (event) callback({ payload:event }); return () => {}; };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const dependencies = { document, invoke, listen, emit:() => {}, getCurrentWindow:() => ({ close() {} }), ...connection, addEventListener:() => {}, matchMedia:() => ({ matches:false }), setTimeout:() => 0, clearTimeout:() => {} };
+  const dependencies = { document, invoke, listen, emit:() => {}, getCurrentWindow:() => ({ close() { closeCalls++; } }), ...connection, addEventListener:(name, handler) => { if (name === 'keydown') keydown = handler; }, matchMedia:() => ({ matches:false }), setTimeout:() => 0, clearTimeout:() => {} };
   await new AsyncFunction(...Object.keys(dependencies), source)(...Object.values(dependencies));
-  return { badge:() => get('st-fake').textContent, event:snapshot => callback({ payload:snapshot }), change:enabled => { toggle.checked = enabled; return change(); }, pending, provider };
+  return { badge:() => get('st-fake').textContent, event:snapshot => callback({ payload:snapshot }), change:enabled => { toggle.checked = enabled; return change(); }, pending, provider, close:() => get('close').onclick(), escape:() => keydown({ key:'Escape' }), closed:() => closeCalls };
 }
 const connected = { revision:1, generated_at:1000, providers:[{ id:'fake', status:'connected', observed_at:1000, metrics:[], notes:[] }] };
 const failed = { revision:2, generated_at:1000, providers:[{ id:'fake', status:'error', error:{ kind:'unavailable', message:'Synthetic failure' }, metrics:[], notes:[] }] };
@@ -91,3 +93,17 @@ test('a failed save does not block the next queued operation or assert disabled 
   await second;
   assert.equal(ui.badge(), 'Connected');
 });
+
+for (const action of ['close', 'escape']) {
+  test(`Settings ${action} waits for pending saves before destroying its window`, async () => {
+    const ui = await initialize(null, connected, true);
+    const save = ui.change(false);
+    await Promise.resolve();
+    const closing = ui[action]();
+    assert.equal(ui.closed(), 0);
+    ui.pending[0].resolve([{ ...ui.provider, enabled:false }]);
+    await save;
+    await closing;
+    assert.equal(ui.closed(), 1);
+  });
+}
