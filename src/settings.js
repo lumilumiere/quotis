@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { connectionBadge } from "./connection.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
 let settings;
 let providers = [];
+let receivedUsage;
 
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
@@ -58,8 +60,9 @@ function showStatus(list) {
   for (const p of providers) {
     const badge = $(`st-${p.id}`);
     if (!badge) continue;
-    badge.textContent = !p.enabled ? "Off" : p.found ? "Connected" : "Not found";
-    badge.className = `ml-2 text-[11px] ${!p.enabled ? "text-ink/60" : p.found ? "text-ok" : "text-warn"}`;
+    const state = connectionBadge(p, receivedUsage?.providers.find((reading) => reading.id === p.id));
+    badge.textContent = state.label;
+    badge.className = `ml-2 text-[11px] ${state.tone === "quiet" ? "text-ink/60" : state.tone === "ok" ? "text-ok" : "text-warn"}`;
     const path = $(`path-${p.id}`);
     if (path) path.textContent = path.title = p.path;
   }
@@ -124,7 +127,12 @@ $("opacity").addEventListener("input", () => {
 $("close").onclick = () => getCurrentWindow().close();
 addEventListener("keydown", (e) => e.key === "Escape" && getCurrentWindow().close());
 
-const [s, list, displays] = await Promise.all([invoke("get_settings"), invoke("get_providers"), invoke("list_displays")]);
+await listen("usage", (event) => {
+  receivedUsage = event.payload;
+  if (settings) showStatus(providers);
+});
+const [s, list, displays, usage] = await Promise.all([invoke("get_settings"), invoke("get_providers"), invoke("list_displays"), invoke("get_usage")]);
+receivedUsage ??= usage;
 settings = s;
 providers = list;
 buildTools();
