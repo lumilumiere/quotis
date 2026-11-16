@@ -26,7 +26,7 @@ M cross-platform release verification: after everything, needs a Mac and signing
 | H | Provider stabilisation and expansion | **Partial** | Seven ported, two added. No live-account verification yet |
 | I | Local CLI | Done | 13 contract tests |
 | J | Agensi skill | Built, not submitted | Passes the local pre-check; needs a seller account |
-| K | Testing and security | **Partial** | Two Codex reviews done and their findings fixed; Codex's verification of the fixes did not complete (usage limit). See `SECURITY_REVIEW.md` |
+| K | Testing and security | **Partial** | Four Codex reviews; the last judged the code release-blocking and its findings were repaired, unreviewed. See `SECURITY_REVIEW.md` |
 | L | Docs, marketing, packaging | Done as drafts | Legal texts need review |
 | M | Cross-platform release verification | **Partial** | CI is green on Windows, Linux, macOS Apple Silicon and Intel. Still needs the overlay run on a Mac and on Linux, an installer smoke test, and signing certificates |
 
@@ -35,7 +35,7 @@ M cross-platform release verification: after everything, needs a Mac and signing
 In order:
 
 1. ~~Push the branch and get CI green on all four runners.~~ Done.
-1. Have Codex verify the review-0002 fixes (it ran out of quota).
+1. ~~Have Codex verify the review-0002 fixes.~~ Done (reviews 0003, 0004); have it re-check `fe4c1ef`, the repairs after 0004.
 2. Run each supported provider once against a real account and record the result in the provider matrix.
 3. Test the overlay on a Mac: launch, Keychain prompt, notch placement on a notched MacBook, Spaces, fullscreen, glass, autostart.
 4. Test the overlay on Windows with two monitors at different scale factors, a top-docked taskbar, sleep and resume, and a fullscreen app.

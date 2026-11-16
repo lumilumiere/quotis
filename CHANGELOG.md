@@ -59,7 +59,7 @@ Developed and tested on Windows 11. The test suite also passes on macOS (Apple S
 ### For developers
 
 - The single-file backend is now a workspace: `quotis-core` (engine and provider adapters), `quotis-cli`, and the Tauri shell. Adding a provider is one file.
-- 99 Rust tests and 17 frontend tests, none of which use the network or real logins.
+- 105 Rust tests and 17 frontend tests, none of which use the network or real logins.
 - New CI workflow for pushes and pull requests: formatting, clippy, tests on Windows, macOS (Apple Silicon and Intel) and Linux, dependency advisories, secret scanning.
 - Releases attach `quotis-cli` binaries and SHA-256 checksum files, and support macOS signing and notarization when the certificates are provided.
 
