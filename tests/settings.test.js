@@ -5,7 +5,7 @@ import * as connection from '../src/connection.js';
 
 // Exercise the actual entry point with deterministic IPC timing; no browser or account.
 const source = fs.readFileSync(new URL('../src/settings.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
-async function initialize(event, usage) {
+async function initialize(event, usage, saves = false) {
   const elements = new Map();
   class Element {
     dataset = {};
@@ -16,16 +16,22 @@ async function initialize(event, usage) {
     addEventListener() {}
   }
   const get = id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
-  const document = { documentElement:new Element(), createElement:() => new Element(), getElementById:get, querySelectorAll:() => [], addEventListener() {} };
+  const toggle = Object.assign(new Element(), { type:'checkbox', checked:true, dataset:{ id:'fake', field:'enabled' } });
+  let change;
+  const document = { documentElement:new Element(), createElement:() => new Element(), getElementById:get, querySelectorAll:() => saves ? [toggle] : [], addEventListener(name, handler) { if (name === 'change') change = handler; } };
   const provider = { id:'fake', name:'Fake', enabled:true, found:true, default_enabled:true, path:'synthetic', hint:'' };
   const settings = { providers:{ fake:{ enabled:true, dir:'' } }, opacity:80, theme:'light' };
-  const invoke = async name => ({ get_settings:settings, get_providers:[provider], list_displays:[], get_usage:usage })[name];
+  const pending = [];
+  const invoke = async (name, args) => {
+    if (name === 'save_settings') return new Promise((resolve, reject) => pending.push({ resolve, reject, settings:structuredClone(args.settings) }));
+    return ({ get_settings:settings, get_providers:[provider], list_displays:[], get_usage:usage })[name];
+  };
   let callback;
   const listen = async (_, handler) => { callback = handler; if (event) callback({ payload:event }); return () => {}; };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const dependencies = { document, invoke, listen, emit:() => {}, getCurrentWindow:() => ({ close() {} }), ...connection, addEventListener:() => {}, matchMedia:() => ({ matches:false }) };
+  const dependencies = { document, invoke, listen, emit:() => {}, getCurrentWindow:() => ({ close() {} }), ...connection, addEventListener:() => {}, matchMedia:() => ({ matches:false }), setTimeout:() => 0, clearTimeout:() => {} };
   await new AsyncFunction(...Object.keys(dependencies), source)(...Object.values(dependencies));
-  return { badge:() => get('st-fake').textContent, event:snapshot => callback({ payload:snapshot }) };
+  return { badge:() => get('st-fake').textContent, event:snapshot => callback({ payload:snapshot }), change:enabled => { toggle.checked = enabled; return change(); }, pending, provider };
 }
 const connected = { revision:1, generated_at:1000, providers:[{ id:'fake', status:'connected', observed_at:1000, metrics:[], notes:[] }] };
 const failed = { revision:2, generated_at:1000, providers:[{ id:'fake', status:'error', error:{ kind:'unavailable', message:'Synthetic failure' }, metrics:[], notes:[] }] };
@@ -49,4 +55,39 @@ test('later successful collection clears the current error', async () => {
 test('real discovery-only snapshot shape does not certify collection', async () => {
   const discovery = { ...connected, providers:[{ id:'fake', status:'connected', metrics:[], notes:[], refreshing:false }] };
   assert.equal((await initialize(null, discovery)).badge(), 'Checking');
+});
+
+test('rapid settings changes serialize immutable writes and their status responses', async () => {
+  const ui = await initialize(null, connected, true);
+  const first = ui.change(false);
+  await Promise.resolve();
+  const second = ui.change(true);
+  await Promise.resolve();
+  assert.equal(ui.pending.length, 1, 'second save must wait for the first response');
+  assert.equal(ui.pending[0].settings.providers.fake.enabled, false);
+  ui.event({ ...connected, revision:2, providers:[{ id:'fake', status:'disabled' }] });
+  ui.pending[0].resolve([{ ...ui.provider, enabled:false }]);
+  await first;
+  await Promise.resolve();
+  assert.equal(ui.pending.length, 2);
+  assert.equal(ui.pending[1].settings.providers.fake.enabled, true);
+  ui.event({ ...connected, revision:3 });
+  ui.pending[1].resolve([{ ...ui.provider, enabled:true }]);
+  await second;
+  assert.equal(ui.badge(), 'Connected');
+});
+
+test('a failed save does not block the next queued operation or assert disabled state', async () => {
+  const ui = await initialize(null, connected, true);
+  const first = ui.change(false);
+  await Promise.resolve();
+  const second = ui.change(true);
+  ui.pending[0].reject(new Error('Synthetic disk failure'));
+  await first;
+  await Promise.resolve();
+  assert.equal(ui.badge(), 'Connected');
+  assert.equal(ui.pending.length, 2);
+  ui.pending[1].resolve([{ ...ui.provider, enabled:true }]);
+  await second;
+  assert.equal(ui.badge(), 'Connected');
 });

@@ -105,17 +105,22 @@ function read() {
 }
 
 let flash;
-async function save() {
+let saving = Promise.resolve();
+function save() {
   read();
   fill();
-  try {
-    showStatus(await invoke("save_settings", { settings }));
-    $("saved").textContent = "Saved";
-  } catch (e) {
-    $("saved").textContent = `Couldn't save: ${e}`;
-  }
-  clearTimeout(flash);
-  flash = setTimeout(() => ($("saved").textContent = ""), 1500);
+  const requested = structuredClone(settings);
+  saving = saving.then(async () => {
+    try {
+      showStatus(await invoke("save_settings", { settings:requested }));
+      $("saved").textContent = "Saved";
+    } catch (e) {
+      $("saved").textContent = `Couldn't save: ${e}`;
+    }
+    clearTimeout(flash);
+    flash = setTimeout(() => ($("saved").textContent = ""), 1500);
+  });
+  return saving;
 }
 
 document.addEventListener("change", save);
