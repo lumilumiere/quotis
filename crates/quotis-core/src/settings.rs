@@ -129,11 +129,12 @@ impl Settings {
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        crate::cache::write_atomic(&dir.join("settings.json"), json.as_bytes())?;
-        // A second copy of exactly what was just saved. If the main file is later damaged,
-        // this still holds the user's latest choices, not an older set.
-        let _ = crate::cache::write_atomic(&dir.join(BACKUP), json.as_bytes());
-        Ok(())
+        // The backup is written first and must succeed: a save is only reported as done when
+        // both copies hold it, so a later damaged main file can never fall back to older
+        // choices (and quietly turn a provider back on). If the main write then fails, the
+        // main file still holds the previous good save and is what loads.
+        crate::cache::write_atomic(&dir.join(BACKUP), json.as_bytes())?;
+        crate::cache::write_atomic(&dir.join("settings.json"), json.as_bytes())
     }
 }
 
@@ -228,6 +229,15 @@ mod tests {
         let loaded = Settings::load(&dir);
         assert!(!loaded.providers["claude"].enabled, "the latest choice survives: the provider stays off");
         assert_eq!(loaded.refresh_min, 9, "the backup is the latest good save, not the one before");
+        // A save whose backup cannot be written fails, and changes neither file.
+        let blocked = crate::fsx::temp_dir("settings-bak-blocked");
+        Settings::default().save(&blocked).unwrap();
+        std::fs::remove_file(blocked.join("settings.json.bak")).unwrap();
+        std::fs::create_dir(blocked.join("settings.json.bak")).unwrap();
+        let mut off = Settings::default();
+        off.providers.insert("claude".into(), ProviderCfg { enabled: false, dir: String::new() });
+        assert!(off.save(&blocked).is_err());
+        assert_eq!(Settings::load(&blocked), Settings::default(), "the failed save left the old settings in place");
         // Damage to the backup alone changes nothing.
         loaded.save(&dir).unwrap();
         std::fs::write(dir.join("settings.json.bak"), "garbage").unwrap();

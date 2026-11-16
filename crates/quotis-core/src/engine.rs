@@ -177,7 +177,9 @@ impl Engine {
             let dir = resolve_dir(cfg.map_or("", |c| &c.dir), p.default_dir());
             let st = self.states.get_mut(info.id).expect("state per provider");
             if st.dir != dir || st.enabled != enabled {
-                *st = State { dir, enabled, jitter_pct: st.jitter_pct, generation: st.generation + 1, ..Default::default() };
+                // Jobs already handed out keep running whatever the new settings say, so they
+                // still count against the cap.
+                *st = State { dir, enabled, jitter_pct: st.jitter_pct, generation: st.generation + 1, outstanding: st.outstanding, ..Default::default() };
             }
         }
         self.settings = settings;
@@ -310,11 +312,11 @@ impl Engine {
         self.expire_leases();
         let base = self.base_secs();
         let Some(st) = self.states.get_mut(job.id()) else { return };
-        if !st.enabled || st.generation != job.generation {
-            return;
-        }
         if job.kind == Kind::Online {
             st.outstanding = st.outstanding.saturating_sub(1);
+        }
+        if !st.enabled || st.generation != job.generation {
+            return;
         }
         match job.kind {
             Kind::Local if job.seq < st.local_seq => return,

@@ -39,6 +39,12 @@ fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Listing) {
     }
     entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
     for e in entries {
+        // Checked before every entry, at every depth: once the cap is reached the walk ends.
+        // Anything not yet looked at may hold more, so the listing says it is incomplete.
+        if out.files.len() >= limit {
+            out.truncated = true;
+            return;
+        }
         let Ok(ft) = e.file_type() else { continue };
         let path = e.path();
         if ft.is_dir() {
@@ -48,10 +54,6 @@ fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Listing) {
                 out.truncated = true;
             }
         } else if ft.is_file() && path.extension().is_some_and(|x| x == "jsonl") {
-            if out.files.len() >= limit {
-                out.truncated = true;
-                return;
-            }
             let modified = e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
             out.files.push((path, modified));
         }
@@ -264,6 +266,14 @@ mod tests {
         let newest = jsonl_files(&dir, 1);
         assert!(newest.files[0].0.ends_with("2026/02/new.jsonl"));
         assert!(newest.truncated, "stopping at the limit is reported, not silent");
+        // Once the cap is reached, older folders are not walked at all.
+        for i in 0..50 {
+            std::fs::create_dir_all(dir.join(format!("2025/{i:02}/deep/er"))).unwrap();
+        }
+        std::fs::write(dir.join("2025/00/deep/er/old.jsonl"), "").unwrap();
+        let capped = jsonl_files(&dir, 1);
+        assert_eq!(capped.files.len(), 1);
+        assert!(capped.files[0].0.ends_with("2026/02/new.jsonl"));
     }
 
     #[cfg(unix)]

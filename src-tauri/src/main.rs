@@ -323,7 +323,16 @@ async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Vec<Pro
     settings.position = with(&app, |a| a.engine.settings().position);
     // Disk first. If this fails, the running app keeps the settings it had.
     settings.save(&data_dir()).map_err(|e| e.to_string())?;
-    with(&app, |a| a.engine.set_settings(settings.clone()));
+    with(&app, |a| {
+        // The island may have been dragged while the file was being written. Keep where it
+        // is now, and mark that for saving, rather than snapping it back.
+        let now_at = a.engine.settings().position;
+        if now_at != settings.position {
+            settings.position = now_at;
+            a.position_dirty = true;
+        }
+        a.engine.set_settings(settings.clone());
+    });
     probe(&app);
     let statuses = with(&app, |a| a.engine.statuses());
     let _ = app.emit("settings", &settings);

@@ -42,15 +42,37 @@ fn credentials(root: &Path) -> Result<Value, ProviderError> {
 /// macOS keeps the Claude Code login in the Keychain; the OS asks the user before releasing it.
 #[cfg(target_os = "macos")]
 fn keychain() -> Result<String, ProviderError> {
-    let out = std::process::Command::new("/usr/bin/security")
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let mut child = Command::new("/usr/bin/security")
         .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .map_err(|_| not_signed_in())?;
-    if out.status.success() {
-        return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+    // Long enough for the user to answer the access prompt, not forever.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ProviderError::new(ErrorKind::PermissionDenied, "the Keychain did not answer; is its access prompt still open?"));
+            }
+        }
+    };
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    if status.success() {
+        return Ok(out.trim().to_string());
     }
     // 44 = item not found; anything else means the user or the OS refused access.
-    match out.status.code() {
+    match status.code() {
         Some(44) => Err(not_signed_in()),
         _ => Err(ProviderError::new(ErrorKind::PermissionDenied, "Keychain access to the Claude Code login was denied")),
     }

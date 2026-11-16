@@ -8,7 +8,23 @@ Status of every security-relevant finding from the two independent Codex reviews
 | [0002 implementation](reviews/0002-implementation-codex.md) | `f0b3ea5` | 16 new (13 medium, 3 low); of the 18 baseline findings 7 fixed, 10 partial, 1 not fixed | 0 / 0 |
 | [0003 fix verification](reviews/0003-fix-verification-codex.md) | `cd8d662` | Of N01-N16: 6 verified fixed, 9 partial, 1 accepted risk judged reasonable. 7 new medium regressions (R01-R07). **Judged release-blocking** | 0 / 0 |
 
-No finding in any review was rated critical or high. Review 0003 judged the fix set release-blocking on R01, R02/R06, R03/R04 and N02. Those were repaired afterwards in `1ab7658`; **that repair has not itself been independently reviewed.** Treat "Fixed" below as "fixed and tested by the implementer" unless the 0003 column says "Verified".
+| [0004 re-check](reviews/0004-recheck-codex.md) | `1ab7658` | R01, R02, R03, R04, R06, R07 verified fixed; R05, N02, N03, N04, N10 partial; N11 accepted as reasonable. 2 new medium (S01, S02). **Still judged release-blocking** | 0 / 0 |
+
+No finding in any review was rated critical or high. Review 0004 still judged the code release-blocking, on N02, S01, S02, malformed-log zeros and worker deadlines. Those were addressed in the commit after `1ab7658` (see the table below); **that last repair has not been independently reviewed.** Treat "Fixed" as "fixed and tested by the implementer" unless a review says "verified".
+
+## Review 0004: what was done
+
+| ID | Codex 0004 | Now | Guarding test |
+|---|---|---|---|
+| S01 | A drag during a Settings save was overwritten by the saved form | Fixed: the position at the moment of applying wins and is marked for saving | Shell code; no automated test |
+| S02 | The file cap no longer stopped the walk | Fixed: the cap is checked before every entry at every depth, and ends the whole walk | `walk_is_capped_and_ignores_other_files` (now with 50 older folders that must not be entered) |
+| N02 | A failed backup write was ignored | Fixed: the backup is written first and must succeed, else the save fails and neither file changes | `a_damaged_settings_file_falls_back_to_the_last_good_one` |
+| R05 | The job cap reset on reconfiguration | Fixed: outstanding jobs still count after reconfiguration and are released by any report. The macOS Keychain call now gives up after 60 seconds. **Collectors are still not cancelled**: a hung file read keeps its thread | `a_collector_that_hangs_every_time_cannot_pile_up_jobs` |
+| N04 | Unreadable token lines gave an unqualified zero | Fixed: such lines mark the total as a lower bound. **Walk errors inside a folder are still skipped** | `unreadable_token_lines_make_the_total_a_lower_bound` |
+| N03 | Longer replacements sharing a prefix look appended; coarse timestamps can hide same-size rewrites | **Accepted**, recorded as a `ponytail:` note in `fsx.rs`. Fixing it needs file identity per OS | |
+| N10 | HTTP-date `Retry-After`; no overall deadline for `--live` | **Not done** | |
+
+The re-check of `1ab7658` (review 0004) was the last independent review run. Fixes after it are unreviewed.
 
 ## Review 0003: regressions and partial fixes, and what was done
 

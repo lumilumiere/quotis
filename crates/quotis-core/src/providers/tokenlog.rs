@@ -144,7 +144,13 @@ impl Provider for TokenLog {
                     if new.skipped {
                         st.partial_until = now + DAY;
                     }
-                    st.entries.extend(parse_lines(&new.text));
+                    let parsed = parse_lines(&new.text);
+                    // A line that carries a token count but cannot be read (a format change, a
+                    // bad timestamp) is usage that went uncounted.
+                    if parsed.len() < new.text.lines().filter(|l| l.contains("\"tokens\"")).count() {
+                        st.partial_until = now + DAY;
+                    }
+                    st.entries.extend(parsed);
                 }
                 Err(e) => failed = Some(io_error(&e)),
             }
@@ -273,6 +279,17 @@ mod tests {
         assert!(q(p.collect_local(&dir, now).unwrap().unwrap()).is_some(), "first pass says it is a lower bound");
         assert!(q(p.collect_local(&dir, now + 60).unwrap().unwrap()).is_some(), "and so does the next, with nothing new read");
         assert!(q(p.collect_local(&dir, now + DAY + 1).unwrap().unwrap()).is_none(), "until the gap has aged out of every window");
+    }
+
+    #[test]
+    fn unreadable_token_lines_make_the_total_a_lower_bound() {
+        let dir = crate::fsx::temp_dir("tokenlog-bad");
+        std::fs::create_dir_all(dir.join("tmp")).unwrap();
+        let now = parse_ts("2026-09-22T10:00:00Z").unwrap();
+        std::fs::write(dir.join("tmp/s.jsonl"), format!("{}{{\"when\":\"later\",\"tokens\":{{\"sum\":5}}}}\n", line("2026-09-22T09:00:00Z", 10))).unwrap();
+        let m = TokenLog::gemini().collect_local(&dir, now).unwrap().unwrap().metrics.remove(1);
+        assert_eq!(m.used, Some(10.0));
+        assert!(m.qualification.is_some(), "not presented as a complete total");
     }
 
     #[test]

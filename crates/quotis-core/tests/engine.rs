@@ -495,7 +495,13 @@ fn a_collector_that_hangs_every_time_cannot_pile_up_jobs() {
     let p = only(&e, 0);
     assert!(!p.refreshing);
     assert_eq!(p.error.map(|e| e.kind), Some(ErrorKind::Unavailable), "a check that never finished is reported");
-    // When one of them finally reports, a slot frees up.
+    // Reconfiguring does not reset the count: those jobs are still running.
+    let mut s = Settings::default();
+    s.providers.insert("fake".into(), ProviderCfg { enabled: true, dir: std::env::temp_dir().join("quotis-hang").display().to_string() });
+    e.set_settings(s);
+    e.set_settings(Settings::default());
+    assert!(e.due_online(0).is_empty(), "still three outstanding");
+    // When one of them finally reports, even for an old configuration, a slot frees up.
     e.finish(&issued[0], Some(Err(err(ErrorKind::Offline))), 0);
     e.age_last_poll("fake", Duration::from_secs(100_000));
     assert_eq!(e.due_online(0).len(), 1);
