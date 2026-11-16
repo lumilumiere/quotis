@@ -142,7 +142,7 @@ fn rate_limit_backs_off_and_keeps_last_numbers() {
     assert_eq!(e.backoff_secs("fake"), 1800, "no Retry-After: exponential");
     e.age_last_poll("fake", Duration::from_secs(4000));
     poll(&mut e, 5800);
-    assert_eq!(e.backoff_secs("fake"), 7 * 86_400, "a server's Retry-After is honoured, up to a week");
+    assert_eq!(e.backoff_secs("fake"), 999999, "a server's Retry-After is never shortened");
 }
 
 #[test]
@@ -345,15 +345,18 @@ fn file_changes_select_their_provider_and_trigger_an_early_poll() {
 fn concurrent_updates_from_many_threads_stay_consistent() {
     let fake = Fake::new(&FAKE);
     let e = Arc::new(Mutex::new(engine(fake.clone())));
-    let job = e.lock().unwrap().local_jobs().remove(0);
     std::thread::scope(|s| {
         for t in 0..8i64 {
-            let (e, job) = (e.clone(), job.clone());
+            let e = e.clone();
             s.spawn(move || {
                 for i in 0..200i64 {
                     let observed = t * 1000 + i;
                     let out = Some(Ok(quota("q", (observed % 100) as f64, None, Source::LocalLog, observed)));
-                    e.lock().unwrap().finish(&job, out, observed);
+                    {
+                        let mut engine = e.lock().unwrap();
+                        let job = engine.local_jobs().remove(0);
+                        engine.finish(&job, out, observed);
+                    }
                     let snap = e.lock().unwrap().snapshot(observed);
                     assert!(snap.providers[0].metrics.len() <= 1);
                 }
@@ -558,4 +561,94 @@ fn a_snapshot_read_later_is_rejudged_for_the_time_it_is_read() {
     // A snapshot written before the budget field existed still parses, with the default budget.
     let old = r#"{"schema_version":1,"generated_at":1,"app_version":"2.0.0","providers":[]}"#;
     assert_eq!(cache::parse(old).unwrap().stale_after_secs, 900);
+}
+
+#[test]
+fn duplicate_old_reports_do_not_release_other_workers() {
+    let mut e = engine(Fake::new(&FAKE));
+    let mut old = Vec::new();
+    for _ in 0..3 {
+        old.extend(e.due_online(0));
+        e.age_last_poll("fake", Duration::from_secs(100_000));
+    }
+    let mut s = Settings::default();
+    s.providers.insert("fake".into(), ProviderCfg { enabled: true, dir: std::env::temp_dir().join("quotis-reconfigured").display().to_string() });
+    e.set_settings(s);
+    e.finish(&old[0], None, 0);
+    assert_eq!(e.due_online(0).len(), 1);
+    for _ in 0..10 {
+        e.finish(&old[0], None, 0);
+        e.age_last_poll("fake", Duration::from_secs(100_000));
+        assert!(e.due_online(0).is_empty(), "a duplicate completion cannot free another job's slot");
+    }
+}
+
+#[test]
+fn local_failure_survives_online_failure_then_success() {
+    let fake = Fake::new(&FAKE);
+    fake.local.lock().unwrap().push(Err(err(ErrorKind::PermissionDenied)));
+    fake.online.lock().unwrap().extend([Err(err(ErrorKind::Offline)), Ok(quota("api", 20.0, None, Source::ProviderApi, 100))]);
+    let mut e = engine(fake);
+    local(&mut e, 100);
+    poll(&mut e, 100);
+    e.age_last_poll("fake", Duration::from_secs(100_000));
+    poll(&mut e, 100);
+    assert_eq!(only(&e, 100).error.map(|e| e.kind), Some(ErrorKind::PermissionDenied));
+}
+
+#[test]
+fn local_workers_stay_bounded_through_reconfiguration() {
+    let mut e = engine(Fake::new(&FAKE));
+    let mut issued = Vec::new();
+    for i in 0..20 {
+        let mut s = Settings::default();
+        s.providers.insert("fake".into(), ProviderCfg { enabled: true, dir: std::env::temp_dir().join(format!("quotis-local-{i}")).display().to_string() });
+        e.set_settings(s);
+        issued.extend(e.local_jobs());
+    }
+    assert_eq!(issued.len(), 3, "reconfiguration must not allocate unlimited local workers");
+    e.finish(&issued[0], None, 0);
+    assert_eq!(e.local_jobs().len(), 1);
+    e.finish(&issued[0], None, 0);
+    assert!(e.local_jobs().is_empty(), "a duplicate local report frees no slot");
+}
+
+struct BlockingLocal;
+impl Provider for BlockingLocal {
+    fn info(&self) -> &'static Info {
+        &FAKE
+    }
+    fn default_dir(&self) -> PathBuf {
+        PathBuf::from("/fake")
+    }
+    fn detect(&self, _: &Path) -> bool {
+        true
+    }
+    fn collect_local(&self, _: &Path, _: i64) -> Outcome {
+        std::thread::sleep(Duration::from_millis(300));
+        None
+    }
+}
+
+#[test]
+fn one_shot_local_collection_has_an_overall_deadline() {
+    let mut e = Engine::with_providers(Settings::default(), vec![Arc::new(BlockingLocal)]);
+    let start = std::time::Instant::now();
+    let snap = e.collect_once_with_timeout(false, Duration::from_millis(30));
+    assert!(start.elapsed() < Duration::from_millis(200), "local collector delayed the entire live command");
+    assert_eq!(snap.providers[0].error.as_ref().map(|e| e.kind), Some(ErrorKind::Unavailable));
+    assert!(snap.providers[0].metrics.is_empty());
+}
+
+#[test]
+fn retry_after_is_not_shortened_even_beyond_a_week() {
+    let fake = Fake::new(&FAKE);
+    fake.online.lock().unwrap().push(Err(ProviderError { retry_after_secs: Some(u64::MAX), ..err(ErrorKind::RateLimited) }));
+    let mut e = engine(fake);
+    poll(&mut e, 0);
+    assert_eq!(e.backoff_secs("fake"), u64::MAX);
+    e.age_last_poll("fake", Duration::from_secs(100_000));
+    assert!(e.due_online(0).is_empty());
+    assert!(e.refresh_online().is_empty());
+    assert!(e.all_online().is_empty(), "one-shot requests also respect the server delay");
 }

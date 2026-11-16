@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The overlay and Settings windows may listen for events, drag the overlay and close themselves. Nothing else: no shell, file system or HTTP access.",
+  "description": "Local overlay and Settings windows may exchange events, drag and close windows. Custom Rust commands also manage Quotis settings, provider reads, refresh and quit. No general shell, filesystem or HTTP plugin permission.",
   "windows": ["main", "settings"],
   "permissions": ["core:event:default", "core:window:allow-start-dragging", "core:window:allow-close"]
 }

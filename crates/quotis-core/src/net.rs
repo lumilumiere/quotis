@@ -17,7 +17,7 @@ pub fn get(url: &str, headers: &[(&str, &str)]) -> Result<Value, ProviderError> 
     match resp.status().as_u16() {
         200 => {}
         429 => {
-            let retry = resp.headers().get("retry-after").and_then(|v| v.to_str().ok()?.trim().parse().ok());
+            let retry = resp.headers().get("retry-after").and_then(|v| retry_after(v.to_str().ok()?, std::time::SystemTime::now()));
             return Err(ProviderError { retry_after_secs: retry, ..ProviderError::new(ErrorKind::RateLimited, "rate limited, retrying later") });
         }
         401 | 403 => return Err(ProviderError::new(ErrorKind::AuthExpired, "login expired")),
@@ -26,6 +26,14 @@ pub fn get(url: &str, headers: &[(&str, &str)]) -> Result<Value, ProviderError> 
     let bad = || ProviderError::new(ErrorKind::BadResponse, "unexpected response");
     let body = resp.body_mut().with_config().limit(MAX_BODY).read_to_string().map_err(|_| bad())?;
     serde_json::from_str(&body).map_err(|_| bad())
+}
+
+fn retry_after(value: &str, now: std::time::SystemTime) -> Option<u64> {
+    let value = value.trim();
+    value.parse().ok().or_else(|| {
+        let delay = httpdate::parse_http_date(value).ok()?.duration_since(now).unwrap_or_default();
+        Some(delay.as_secs().saturating_add(u64::from(delay.subsec_nanos() > 0)))
+    })
 }
 
 pub fn bad_response() -> ProviderError {
@@ -90,5 +98,13 @@ mod tests {
         let url = serve("HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         let e = get(&url, &[("Authorization", "Bearer sk-secret-token")]).unwrap_err();
         assert!(!format!("{e:?}").contains("sk-secret-token"));
+    }
+
+    #[test]
+    fn retry_after_http_date_is_honoured() {
+        let e =
+            get(&serve("HTTP/1.1 429 Too Many Requests\r\nRetry-After: Tue, 01 Jan 2030 00:00:00 GMT\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"), &[])
+                .unwrap_err();
+        assert!(e.retry_after_secs.is_some_and(|s| s > 86400), "HTTP-date delay must not become the default backoff");
     }
 }

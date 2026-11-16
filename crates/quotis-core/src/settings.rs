@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_ID: &str = "io.github.lumilumiere.quotis";
 const BACKUP: &str = "settings.json.bak";
+const COMMITTED: &str = "settings.committed.json";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -118,23 +119,60 @@ impl Settings {
         self.providers.retain(|id, _| id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
     }
 
-    /// Loads settings. If the file is damaged, the last good copy is used instead, so a
-    /// provider the user turned off is not quietly turned back on. Defaults only when
-    /// neither exists (first run) or both are unusable.
+    /// The commit record is authoritative once present. The two compatibility copies may
+    /// contain a prepared revision after an interrupted save; they cannot commit it.
     pub fn load(dir: &Path) -> Self {
         let read = |name: &str| std::fs::read_to_string(dir.join(name)).ok().and_then(|t| Self::try_parse(&t));
-        read("settings.json").or_else(|| read(BACKUP)).unwrap_or_default()
+        if !matches!(dir.join(COMMITTED).try_exists(), Ok(false)) {
+            return read(COMMITTED).unwrap_or_else(Self::recovery_disabled);
+        }
+        read("settings.json").or_else(|| read(BACKUP)).unwrap_or_else(|| {
+            if ["settings.json", BACKUP].iter().all(|p| matches!(dir.join(p).try_exists(), Ok(false))) {
+                Self::default()
+            } else {
+                Self::recovery_disabled()
+            }
+        })
+    }
+
+    fn recovery_disabled() -> Self {
+        eprintln!("settings recovery failed; all providers disabled until settings are saved");
+        Self {
+            providers: crate::providers::registry().iter().map(|p| (p.info().id.into(), ProviderCfg { enabled: false, dir: String::new() })).collect(),
+            ..Self::default()
+        }
     }
 
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
+        static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _writer = WRITER.lock().unwrap_or_else(|e| e.into_inner());
+        self.save_with(dir, crate::cache::write_atomic)
+    }
+
+    fn save_with(&self, dir: &Path, mut write: impl FnMut(&Path, &[u8]) -> std::io::Result<()>) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
+        let committed = dir.join(COMMITTED);
+        let previous = if committed.try_exists()? {
+            std::fs::read(&committed)?
+        } else {
+            let previous = serde_json::to_vec_pretty(&Self::load(dir)).map_err(std::io::Error::other)?;
+            write(&committed, &previous)?;
+            previous
+        };
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        // The backup is written first and must succeed: a save is only reported as done when
-        // both copies hold it, so a later damaged main file can never fall back to older
-        // choices (and quietly turn a provider back on). If the main write then fails, the
-        // main file still holds the previous good save and is what loads.
-        crate::cache::write_atomic(&dir.join(BACKUP), json.as_bytes())?;
-        crate::cache::write_atomic(&dir.join("settings.json"), json.as_bytes())
+        let result = (|| {
+            write(&dir.join(BACKUP), json.as_bytes())?;
+            write(&dir.join("settings.json"), json.as_bytes())?;
+            // Only this atomic replacement makes the prepared pair authoritative.
+            write(&committed, json.as_bytes())
+        })();
+        if result.is_err() {
+            // Best effort for older readers; recovery by this version always uses the
+            // unchanged commit record, even if the storage failure prevents rollback.
+            let _ = write(&dir.join(BACKUP), &previous);
+            let _ = write(&dir.join("settings.json"), &previous);
+        }
+        result
     }
 }
 
@@ -255,5 +293,52 @@ mod tests {
         assert_eq!(resolve_dir("~someone/.claude", PathBuf::from("x")), PathBuf::from("x"));
         assert_eq!(resolve_dir("relative/dir", PathBuf::from("x")), PathBuf::from("x"));
         assert_eq!(resolve_dir("../../etc", PathBuf::from("x")), PathBuf::from("x"));
+    }
+
+    #[test]
+    fn failed_primary_write_never_commits_the_prepared_backup() {
+        let dir = crate::fsx::temp_dir("settings-primary-failure");
+        let mut committed = Settings::default();
+        committed.providers.insert("codex".into(), ProviderCfg { enabled: false, dir: String::new() });
+        committed.save(&dir).unwrap();
+        std::fs::remove_file(dir.join("settings.json")).unwrap();
+        std::fs::create_dir(dir.join("settings.json")).unwrap();
+        let candidate = Settings::default();
+        assert!(candidate.save(&dir).is_err(), "primary replacement is blocked by a directory");
+        assert_eq!(Settings::load(&dir), committed, "failed save must not become recovery state");
+        std::fs::remove_dir(dir.join("settings.json")).unwrap();
+        std::fs::write(dir.join("settings.json"), "corrupt").unwrap();
+        assert_eq!(Settings::load(&dir), committed, "corruption after failure must not enable Codex");
+    }
+
+    #[test]
+    fn unrecoverable_existing_settings_do_not_enable_providers() {
+        let dir = crate::fsx::temp_dir("settings-corrupt-both");
+        std::fs::write(dir.join("settings.json"), "corrupt").unwrap();
+        std::fs::write(dir.join(BACKUP), "corrupt").unwrap();
+        let settings = Settings::load(&dir);
+        for p in crate::providers::registry() {
+            assert!(!settings.providers.get(p.info().id).is_none_or(|c| c.enabled), "{} must be off after corruption", p.info().id);
+        }
+    }
+
+    #[test]
+    fn failed_commit_and_failed_rollback_keep_the_previous_generation() {
+        let dir = crate::fsx::temp_dir("settings-commit-failure");
+        let mut old = Settings::default();
+        old.providers.insert("codex".into(), ProviderCfg { enabled: false, dir: String::new() });
+        old.save(&dir).unwrap();
+        let mut calls = 0;
+        let result = Settings::default().save_with(&dir, |p, b| {
+            calls += 1;
+            if calls >= 3 {
+                return Err(std::io::Error::other("injected disk failure"));
+            }
+            crate::cache::write_atomic(p, b)
+        });
+        assert!(result.is_err());
+        assert_eq!(Settings::load(&dir), old);
+        std::fs::write(dir.join("settings.json"), "corrupt").unwrap();
+        assert_eq!(Settings::load(&dir), old);
     }
 }

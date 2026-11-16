@@ -9,6 +9,7 @@ use std::time::SystemTime;
 const MAX_DEPTH: usize = 8;
 /// Entries looked at in any one folder. Bounds the walk even when nothing matches.
 const MAX_DIR_ENTRIES: usize = 20_000;
+const MAX_WALK_ENTRIES: usize = 40_000;
 /// The most a single read takes from one file. Older bytes of a larger file are skipped.
 pub const MAX_READ: u64 = 16 << 20;
 
@@ -26,17 +27,17 @@ pub struct Listing {
 /// configured and may be a link: people do keep tool folders on another drive.
 pub fn jsonl_files(dir: &Path, limit: usize) -> Listing {
     let mut out = Listing { files: Vec::new(), truncated: false };
-    walk(dir, 0, limit, &mut out);
+    let mut budget = MAX_WALK_ENTRIES;
+    walk(dir, 0, limit, &mut out, &mut budget);
     out
 }
 
-fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Listing) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = rd.flatten().take(MAX_DIR_ENTRIES + 1).collect();
-    if entries.len() > MAX_DIR_ENTRIES {
-        entries.truncate(MAX_DIR_ENTRIES);
+fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Listing, budget: &mut usize) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
         out.truncated = true;
-    }
+        return;
+    };
+    let mut entries = capped_entries(rd, budget, &mut out.truncated);
     entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
     for e in entries {
         // Checked before every entry, at every depth: once the cap is reached the walk ends.
@@ -45,19 +46,45 @@ fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Listing) {
             out.truncated = true;
             return;
         }
-        let Ok(ft) = e.file_type() else { continue };
+        let Ok(ft) = e.file_type() else {
+            out.truncated = true;
+            continue;
+        };
         let path = e.path();
         if ft.is_dir() {
             if depth < MAX_DEPTH {
-                walk(&path, depth + 1, limit, out);
+                if *budget == 0 {
+                    out.truncated = true;
+                    return;
+                }
+                walk(&path, depth + 1, limit, out, budget);
             } else {
                 out.truncated = true;
             }
         } else if ft.is_file() && path.extension().is_some_and(|x| x == "jsonl") {
-            let modified = e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+            let modified = e.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| {
+                out.truncated = true;
+                SystemTime::UNIX_EPOCH
+            });
             out.files.push((path, modified));
         }
     }
+}
+
+fn capped_entries(rd: impl Iterator<Item = io::Result<std::fs::DirEntry>>, budget: &mut usize, incomplete: &mut bool) -> Vec<std::fs::DirEntry> {
+    let mut entries = Vec::new();
+    for entry in rd.take(MAX_DIR_ENTRIES + 1) {
+        if *budget == 0 || entries.len() == MAX_DIR_ENTRIES {
+            *incomplete = true;
+            break;
+        }
+        *budget -= 1;
+        match entry {
+            Ok(entry) => entries.push(entry),
+            Err(_) => *incomplete = true,
+        }
+    }
+    entries
 }
 
 /// Whether a folder (`want_dir`) or file exists. "Not there" is `Ok(false)`; "could not
@@ -80,6 +107,8 @@ pub struct Checkpoint {
     /// but not its time.
     len: u64,
     modified: Option<SystemTime>,
+    boundary: u64,
+    identity: Option<same_file::Handle>,
 }
 
 pub struct NewLines {
@@ -100,32 +129,44 @@ fn fingerprint(bytes: &[u8]) -> u64 {
 /// Reads the complete lines appended to `path` since the checkpoint, then advances it.
 /// A file that shrank, or whose first bytes changed (replaced or rotated, even to the same
 /// length), is read again from the start. A trailing partial line is left for the next call.
-// ponytail: a replacement that keeps the first 64 bytes and is longer looks like an append.
-// Compare file identity (inode / file index) if a tool is ever found to do that.
 pub fn read_new_lines(path: &Path, cp: &mut Checkpoint) -> io::Result<NewLines> {
     let mut f = File::open(path)?;
     let meta = f.metadata()?;
+    let identity = same_file::Handle::from_file(f.try_clone()?)?;
     let (len, modified) = (meta.len(), meta.modified().ok());
     let mut head = [0u8; 64];
     let n = f.read(&mut head)?;
     let head = fingerprint(&head[..n]);
+    // Verify bytes already consumed at the append boundary, not only the file header.
+    let boundary = boundary_fingerprint(&mut f, cp.offset.min(len))?;
     let rewritten_in_place = len == cp.len && modified != cp.modified;
-    let restarted = cp.offset > 0 && (len < cp.offset || head != cp.head || rewritten_in_place);
+    let replaced = cp.identity.as_ref().is_some_and(|old| *old != identity);
+    let restarted = cp.offset > 0 && (replaced || len < cp.offset || head != cp.head || boundary != cp.boundary || rewritten_in_place);
     if restarted {
         cp.offset = 0;
     }
     (cp.head, cp.len, cp.modified) = (head, len, modified);
+    cp.identity = Some(identity);
     let skipped = len - cp.offset > MAX_READ;
     if skipped {
         cp.offset = len - MAX_READ;
     }
     f.seek(SeekFrom::Start(cp.offset))?;
     let mut buf = Vec::new();
-    f.take(MAX_READ).read_to_end(&mut buf)?;
+    Read::by_ref(&mut f).take(MAX_READ).read_to_end(&mut buf)?;
     let end = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
     let start = if skipped { buf.iter().position(|&b| b == b'\n').map_or(end, |i| i + 1).min(end) } else { 0 };
     cp.offset += end as u64;
+    cp.boundary = boundary_fingerprint(&mut f, cp.offset)?;
     Ok(NewLines { text: String::from_utf8_lossy(&buf[start..end]).into_owned(), restarted, skipped })
+}
+
+fn boundary_fingerprint(f: &mut File, offset: u64) -> io::Result<u64> {
+    let start = offset.saturating_sub(256);
+    f.seek(SeekFrom::Start(start))?;
+    let mut bytes = [0u8; 256];
+    f.read_exact(&mut bytes[..(offset - start) as usize])?;
+    Ok(fingerprint(&bytes[..(offset - start) as usize]))
 }
 
 /// Reads at most the last `max` bytes of a file, dropping a leading partial line.
@@ -170,6 +211,72 @@ pub(crate) fn temp_dir(tag: &str) -> PathBuf {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn enumeration_failure_is_incomplete() {
+        let dir = temp_dir("walk-error");
+        let file = dir.join("not-a-directory");
+        std::fs::write(&file, "").unwrap();
+        assert!(jsonl_files(&file, 5).truncated, "failed enumeration cannot be called complete");
+    }
+
+    #[test]
+    fn an_error_partway_through_enumeration_is_not_flattened_away() {
+        let dir = temp_dir("walk-partway");
+        std::fs::write(dir.join("a.jsonl"), "").unwrap();
+        std::fs::write(dir.join("b.jsonl"), "").unwrap();
+        let mut entries = std::fs::read_dir(dir).unwrap();
+        let injected = [entries.next().unwrap(), Err(io::Error::other("enumeration failed")), entries.next().unwrap()];
+        let mut incomplete = false;
+        let result = capped_entries(injected.into_iter(), &mut 10, &mut incomplete);
+        assert_eq!(result.len(), 2);
+        assert!(incomplete);
+    }
+
+    #[test]
+    fn global_budget_stops_a_tree_with_no_matching_files() {
+        let dir = temp_dir("walk-work-budget");
+        for i in 0..4 {
+            std::fs::create_dir_all(dir.join(format!("{i}/a/b/c"))).unwrap();
+        }
+        let mut listing = Listing { files: vec![], truncated: false };
+        let mut budget = 6;
+        walk(&dir, 0, 20, &mut listing, &mut budget);
+        assert_eq!(budget, 0);
+        assert!(listing.truncated);
+    }
+
+    #[test]
+    fn a_longer_rewrite_with_the_same_header_restarts() {
+        let dir = temp_dir("rewrite-common-header");
+        let p = dir.join("log.jsonl");
+        let prefix = format!("{}\n", "h".repeat(100));
+        std::fs::write(&p, format!("{prefix}10\n")).unwrap();
+        let mut cp = Checkpoint::default();
+        read_new_lines(&p, &mut cp).unwrap();
+        std::fs::write(&p, format!("{prefix}900\nmore\n")).unwrap();
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert!(r.restarted, "common prefix must not conceal rewritten consumed bytes");
+        assert_eq!(r.text, format!("{prefix}900\nmore\n"));
+    }
+
+    #[test]
+    fn replaced_identity_restarts_even_with_equal_samples_and_mtime() {
+        let dir = temp_dir("identity");
+        let p = dir.join("log.jsonl");
+        let original = format!("{}old{}\n", "a".repeat(512), "z".repeat(512));
+        std::fs::write(&p, &original).unwrap();
+        let mtime = std::fs::metadata(&p).unwrap().modified().unwrap();
+        let mut cp = Checkpoint::default();
+        read_new_lines(&p, &mut cp).unwrap();
+        let new = dir.join("replacement");
+        std::fs::write(&new, original.replace("old", "new")).unwrap();
+        File::options().write(true).open(&new).unwrap().set_times(std::fs::FileTimes::new().set_modified(mtime)).unwrap();
+        std::fs::rename(new, &p).unwrap();
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert!(r.restarted, "a new file identity invalidates every old record");
+        assert!(r.text.contains("new"));
+    }
 
     #[test]
     fn incremental_read_only_returns_new_complete_lines() {

@@ -5,16 +5,13 @@
 use crate::model::*;
 use crate::providers::{registry, Info, Provider};
 use crate::settings::{resolve_dir, Settings};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 const MAX_BACKOFF: u64 = 3600;
-/// The longest a server's own Retry-After is honoured for: a week. Longer than that is
-/// more likely a broken header than an instruction.
-const MAX_RETRY_AFTER: u64 = 7 * 86_400;
 /// A reading dated further ahead of the clock than this is not believed.
 const FUTURE_SKEW: i64 = 300;
 /// Online jobs for one provider that may be outstanding at once, counting ones written off
@@ -75,15 +72,15 @@ struct State {
     metrics: Vec<Metric>,
     notes: Vec<String>,
     account: Option<String>,
-    error: Option<ProviderError>,
-    /// Which kind of collection the current error came from.
-    error_src: Option<Kind>,
+    local_error: Option<ProviderError>,
+    online_error: Option<ProviderError>,
     /// Highest local job sequence committed so far.
     local_seq: u64,
     /// Sequence of the online job currently in flight.
     online_seq: u64,
     /// Online jobs handed out and not yet reported back.
-    outstanding: u32,
+    outstanding: HashSet<u64>,
+    local_outstanding: HashSet<u64>,
     observed_at: Option<i64>,
     refreshing: bool,
     last_poll: Option<Instant>,
@@ -111,7 +108,10 @@ pub struct Engine {
     states: HashMap<&'static str, State>,
     app_version: String,
     next_seq: u64,
+    replies: (mpsc::Sender<Reply>, mpsc::Receiver<Reply>),
 }
+
+type Reply = (Job, Outcome, Option<bool>);
 
 /// A detection pass, prepared under the engine lock and run outside it: detection reads
 /// credential files and databases and must never hold up the UI.
@@ -132,7 +132,8 @@ impl Engine {
     pub fn with_providers(settings: Settings, providers: Vec<Arc<dyn Provider>>) -> Self {
         let seed = std::collections::hash_map::RandomState::new();
         let states = providers.iter().map(|p| (p.info().id, State { jitter_pct: seed.hash_one(p.info().id) % 11, ..Default::default() })).collect();
-        let mut e = Engine { settings: Settings::default(), providers, states, app_version: env!("CARGO_PKG_VERSION").into(), next_seq: 0 };
+        let mut e =
+            Engine { settings: Settings::default(), providers, states, app_version: env!("CARGO_PKG_VERSION").into(), next_seq: 0, replies: mpsc::channel() };
         e.set_settings(settings);
         e
     }
@@ -179,7 +180,15 @@ impl Engine {
             if st.dir != dir || st.enabled != enabled {
                 // Jobs already handed out keep running whatever the new settings say, so they
                 // still count against the cap.
-                *st = State { dir, enabled, jitter_pct: st.jitter_pct, generation: st.generation + 1, outstanding: st.outstanding, ..Default::default() };
+                *st = State {
+                    dir,
+                    enabled,
+                    jitter_pct: st.jitter_pct,
+                    generation: st.generation + 1,
+                    outstanding: std::mem::take(&mut st.outstanding),
+                    local_outstanding: std::mem::take(&mut st.local_outstanding),
+                    ..Default::default()
+                };
             }
         }
         self.settings = settings;
@@ -201,7 +210,7 @@ impl Engine {
 
     /// May another online job be issued for this provider right now?
     fn free(st: &State) -> bool {
-        !Self::in_flight(st) && st.outstanding < MAX_OUTSTANDING
+        !Self::in_flight(st) && st.outstanding.len() < MAX_OUTSTANDING as usize
     }
 
     /// Writes off online jobs that have not reported back within their lease, and says so.
@@ -211,8 +220,7 @@ impl Engine {
             st.refreshing = false;
             st.fails = st.fails.saturating_add(1);
             st.backoff = st.backoff.max(base);
-            st.error = Some(ProviderError::new(ErrorKind::Unavailable, "a check did not finish"));
-            st.error_src = Some(Kind::Online);
+            st.online_error = Some(ProviderError::new(ErrorKind::Unavailable, "a check did not finish"));
         }
     }
 
@@ -223,7 +231,21 @@ impl Engine {
     /// Local collection for every enabled provider.
     pub fn local_jobs(&mut self) -> Vec<Job> {
         let all: Vec<_> = self.enabled().cloned().collect();
-        all.iter().map(|p| self.job(p, Kind::Local)).collect()
+        self.begin_local(all)
+    }
+
+    fn begin_local(&mut self, providers: Vec<Arc<dyn Provider>>) -> Vec<Job> {
+        providers
+            .iter()
+            .filter_map(|p| {
+                if self.states[p.info().id].local_outstanding.len() >= MAX_OUTSTANDING as usize {
+                    return None;
+                }
+                let job = self.job(p, Kind::Local);
+                self.states.get_mut(p.info().id).expect("state").local_outstanding.insert(job.seq);
+                Some(job)
+            })
+            .collect()
     }
 
     /// Local collection for the providers whose watched folder contains a changed path.
@@ -234,7 +256,7 @@ impl Engine {
         for p in &hit {
             self.states.get_mut(p.info().id).expect("state").dirty = true;
         }
-        hit.iter().map(|p| self.job(p, Kind::Local)).collect()
+        self.begin_local(hit)
     }
 
     /// Folders worth watching for changes. Pure: the caller checks which of them exist.
@@ -257,7 +279,7 @@ impl Engine {
                 }
                 let Some(last) = st.last_poll else { return true };
                 let secs = last.elapsed().as_secs();
-                let wait = base.max(st.backoff) * (100 + st.jitter_pct) / 100;
+                let wait = base.max(st.backoff).saturating_add(base.max(st.backoff) / 100 * st.jitter_pct);
                 let reset_passed = st.metrics.iter().any(|m| m.source == Source::ProviderApi && m.resets_at.is_some_and(|r| r <= now && m.observed_at < r));
                 secs >= wait || ((st.dirty || reset_passed) && secs >= EAGER_SECS.max(st.backoff))
             })
@@ -285,7 +307,14 @@ impl Engine {
     /// Online polls for every enabled provider, ignoring the schedule (startup, `--live`).
     pub fn all_online(&mut self) -> Vec<Job> {
         self.expire_leases();
-        let all = self.enabled().filter(|p| p.has_online() && Self::free(&self.states[p.info().id])).cloned().collect();
+        let all = self
+            .enabled()
+            .filter(|p| {
+                let st = &self.states[p.info().id];
+                p.has_online() && Self::free(st) && st.last_poll.is_none_or(|t| t.elapsed().as_secs() >= st.backoff)
+            })
+            .cloned()
+            .collect();
         self.begin(all)
     }
 
@@ -295,11 +324,12 @@ impl Engine {
             .map(|p| {
                 let st = self.states.get_mut(p.info().id).expect("state");
                 st.refreshing = true;
-                st.outstanding += 1;
                 st.last_poll = Some(Instant::now());
                 st.dirty = false;
                 let job = self.job(p, Kind::Online);
-                self.states.get_mut(p.info().id).expect("state").online_seq = job.seq;
+                let st = self.states.get_mut(p.info().id).expect("state");
+                st.online_seq = job.seq;
+                st.outstanding.insert(job.seq);
                 job
             })
             .collect()
@@ -312,8 +342,9 @@ impl Engine {
         self.expire_leases();
         let base = self.base_secs();
         let Some(st) = self.states.get_mut(job.id()) else { return };
-        if job.kind == Kind::Online {
-            st.outstanding = st.outstanding.saturating_sub(1);
+        let pending = if job.kind == Kind::Online { &mut st.outstanding } else { &mut st.local_outstanding };
+        if !pending.remove(&job.seq) {
+            return;
         }
         if !st.enabled || st.generation != job.generation {
             return;
@@ -340,15 +371,14 @@ impl Engine {
                 if st.metrics.is_empty() {
                     st.notes.clear();
                 }
-                if st.error_src == Some(Kind::Local) {
-                    st.error = None;
-                }
+                st.local_error = None;
             }
             (Kind::Online, None) => {}
             (Kind::Local, Some(Ok(c))) => {
                 st.detected = true;
-                if st.error_src == Some(Kind::Local) || st.error.as_ref().is_some_and(|e| e.kind == ErrorKind::NotSignedIn) {
-                    st.error = None;
+                st.local_error = None;
+                if st.online_error.as_ref().is_some_and(|e| e.kind == ErrorKind::NotSignedIn) {
+                    st.online_error = None;
                 }
                 // A complete local pass replaces what the last local pass reported.
                 st.metrics.retain(|m| is_api(m) || c.metrics.iter().any(|n| n.id == m.id));
@@ -360,8 +390,7 @@ impl Engine {
             }
             // Keep the last numbers (they age into "stale"), and say what went wrong.
             (Kind::Local, Some(Err(e))) => {
-                st.error = Some(e);
-                st.error_src = Some(Kind::Local);
+                st.local_error = Some(e);
             }
             (Kind::Online, Some(Ok(c))) => {
                 st.detected = true;
@@ -370,9 +399,7 @@ impl Engine {
                 st.notes = c.notes;
                 st.account = c.account;
                 // A local problem is not cured by the online check succeeding.
-                if st.error_src != Some(Kind::Local) {
-                    st.error = None;
-                }
+                st.online_error = None;
                 st.observed_at = Some(now);
                 st.backoff = 0;
                 st.fails = 0;
@@ -381,12 +408,11 @@ impl Engine {
                 st.fails = st.fails.saturating_add(1);
                 st.backoff = match (e.kind, e.retry_after_secs) {
                     // The server said when to come back: believe it.
-                    (ErrorKind::RateLimited, Some(secs)) => secs.min(MAX_RETRY_AFTER),
-                    (ErrorKind::RateLimited, None) => (st.backoff * 2).clamp(300, MAX_BACKOFF),
+                    (ErrorKind::RateLimited, Some(secs)) => secs,
+                    (ErrorKind::RateLimited, None) => st.backoff.saturating_mul(2).clamp(300, MAX_BACKOFF),
                     // The first failure retries on the normal schedule; repeats back off.
                     _ => base.saturating_mul(1 << (st.fails - 1).min(6)).min(MAX_BACKOFF),
                 };
-                st.error_src = Some(Kind::Online);
                 match e.kind {
                     // No login: whatever the API said before no longer describes this account.
                     ErrorKind::NotSignedIn | ErrorKind::AuthExpired => {
@@ -394,10 +420,10 @@ impl Engine {
                         st.notes.clear();
                         // A tool that works from local files alone is not in error for lacking an online login.
                         let has_local = !st.metrics.is_empty();
-                        st.error = (e.kind != ErrorKind::NotSignedIn || !has_local).then_some(e);
+                        st.online_error = (e.kind != ErrorKind::NotSignedIn || !has_local).then_some(e);
                     }
                     // Transient: keep the last numbers (they age into "stale") and say why.
-                    _ => st.error = Some(e),
+                    _ => st.online_error = Some(e),
                 }
             }
         }
@@ -416,7 +442,8 @@ impl Engine {
                     m.refresh_freshness(now, stale_after);
                 }
                 let has_data = !metrics.is_empty() || !st.notes.is_empty();
-                let status = match &st.error {
+                let error = st.local_error.as_ref().or(st.online_error.as_ref());
+                let status = match error {
                     _ if !st.enabled => Status::Disabled,
                     _ if has_data => Status::Connected,
                     Some(e) if e.kind == ErrorKind::NotSignedIn => Status::NotDetected,
@@ -430,7 +457,7 @@ impl Engine {
                     vendor: info.vendor.into(),
                     account: st.account.clone(),
                     status,
-                    error: st.error.clone().filter(|_| st.enabled),
+                    error: error.cloned().filter(|_| st.enabled),
                     observed_at: st.observed_at,
                     refreshing: Self::in_flight(st),
                     metrics,
@@ -453,26 +480,70 @@ impl Engine {
             .collect()
     }
 
-    /// Collects everything once and returns the snapshot: local sources inline, online
-    /// sources in parallel. Each request has a 10 second timeout and an adapter makes at most three. Used by `quotis-cli --live`.
+    /// Collects once with a shared 60 second deadline, including detection and local work.
     pub fn collect_once(&mut self, online: bool) -> Snapshot {
-        let now = crate::time::now();
-        self.probe_now();
-        for job in self.local_jobs() {
-            let out = job.run(now);
-            self.finish(&job, out, now);
+        self.collect_once_with_timeout(online, Duration::from_secs(60))
+    }
+
+    /// A caller deadline bounds waiting, not OS filesystem calls. Unfinished workers keep
+    /// their slots until they report, including across later calls and reconfiguration.
+    pub fn collect_once_with_timeout(&mut self, online: bool, timeout: Duration) -> Snapshot {
+        let deadline = Instant::now() + timeout;
+        while let Ok(reply) = self.replies.1.try_recv() {
+            self.accept_reply(reply);
         }
+        let now = crate::time::now();
+        let mut jobs = self.local_jobs();
         if online {
-            let jobs = self.all_online();
-            let outcomes: Vec<Outcome> = std::thread::scope(|s| {
-                let handles: Vec<_> = jobs.iter().map(|j| s.spawn(move || j.run(now))).collect();
-                handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
-            });
-            for (job, out) in jobs.iter().zip(outcomes) {
-                self.finish(job, out, now);
+            jobs.extend(self.all_online());
+        }
+        let mut waiting: HashSet<u64> = jobs.iter().map(|j| j.seq).collect();
+        for job in &jobs {
+            let tx = self.replies.0.clone();
+            let job = job.clone();
+            let original = job.clone();
+            if std::thread::Builder::new()
+                .name("quotis-once".into())
+                .spawn(move || {
+                    let found = (job.kind == Kind::Local)
+                        .then(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.provider.detect(&job.dir))).unwrap_or(false));
+                    let out = job.run(now);
+                    let _ = tx.send((job, out, found));
+                })
+                .is_err()
+            {
+                waiting.remove(&original.seq);
+                self.finish(&original, Some(Err(ProviderError::new(ErrorKind::Internal, "could not start a check"))), now);
+            }
+        }
+        while !waiting.is_empty() {
+            match self.replies.1.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(reply) => {
+                    waiting.remove(&reply.0.seq);
+                    self.accept_reply(reply);
+                }
+                Err(_) => break,
+            }
+        }
+        for job in jobs.iter().filter(|j| waiting.contains(&j.seq)) {
+            let st = self.states.get_mut(job.id()).expect("state");
+            let error = Some(ProviderError::new(ErrorKind::Unavailable, "collection deadline exceeded; last values retained"));
+            match job.kind {
+                Kind::Local => st.local_error = error,
+                Kind::Online => {
+                    st.online_error = error;
+                    st.refreshing = false;
+                }
             }
         }
         self.snapshot(crate::time::now())
+    }
+
+    fn accept_reply(&mut self, (job, outcome, found): Reply) {
+        if let Some(found) = found {
+            self.apply_probe(vec![(job.id(), job.generation, found)]);
+        }
+        self.finish(&job, outcome, crate::time::now());
     }
 
     /// Test and diagnostics hook: pretend the last poll of `id` happened `ago` in the past.

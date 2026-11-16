@@ -147,7 +147,7 @@ impl Provider for TokenLog {
                     let parsed = parse_lines(&new.text);
                     // A line that carries a token count but cannot be read (a format change, a
                     // bad timestamp) is usage that went uncounted.
-                    if parsed.len() < new.text.lines().filter(|l| l.contains("\"tokens\"")).count() {
+                    if new.text.lines().any(unknown_usage_line) || parsed.len() < new.text.lines().filter(|l| l.contains("\"tokens\"")).count() {
                         st.partial_until = now + DAY;
                     }
                     st.entries.extend(parsed);
@@ -174,6 +174,19 @@ impl Provider for TokenLog {
         }
         Some(Ok(Collected { metrics, ..Default::default() }))
     }
+}
+
+fn unknown_usage_line(line: &str) -> bool {
+    if line.trim().is_empty() {
+        return false;
+    }
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return true };
+    if v.get("tokens").is_some() {
+        return false;
+    }
+    // Known non-usage records are harmless. Anything else could be a changed usage
+    // schema: keep the total qualified rather than certifying zero activity.
+    !matches!(v.get("type").and_then(Value::as_str), Some("user" | "system" | "info" | "error" | "tool"))
 }
 
 #[cfg(test)]
@@ -302,5 +315,19 @@ mod tests {
         assert_eq!(p.collect_local(&dir, t).unwrap().unwrap().metrics[0].used, Some(10.0));
         assert_eq!(p.collect_local(&dir, t + 6 * 3600).unwrap().unwrap().metrics[0].used, Some(0.0));
         assert_eq!(p.collect_local(&dir, t + 25 * 3600).unwrap().unwrap().metrics[1].used, Some(0.0));
+    }
+
+    #[test]
+    fn unknown_nonempty_log_is_not_an_unqualified_zero() {
+        for text in ["not json\n", "{\"usage\":{\"total_tokens\":900}}\n", "{\"type\":\"model\",\"tokenCount\":900}\n"] {
+            let dir = crate::fsx::temp_dir("tokenlog-unknown");
+            std::fs::create_dir_all(dir.join("tmp")).unwrap();
+            std::fs::write(dir.join("tmp/s.jsonl"), text).unwrap();
+            let p = TokenLog::gemini();
+            for t in [1000, 1001] {
+                let c = p.collect_local(&dir, t).unwrap().unwrap();
+                assert!(c.metrics.iter().all(|m| m.qualification.is_some()), "unknown input cannot certify zero: {text}");
+            }
+        }
     }
 }

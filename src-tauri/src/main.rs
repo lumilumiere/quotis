@@ -16,6 +16,7 @@ use quotis_core::{cache, data_dir, time::now, Engine, Job, ProviderStatus, Setti
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
+mod persistence;
 use tauri::utils::config::WindowEffectsConfig;
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
@@ -59,6 +60,8 @@ struct Watch {
     watcher: RecommendedWatcher,
     watched: Vec<PathBuf>,
 }
+
+struct ConfigurationWork(mpsc::SyncSender<()>);
 
 fn unpoisoned<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     // A panic elsewhere must not take the whole app down, so a poisoned lock is used as it is.
@@ -137,16 +140,12 @@ fn emit(app: &AppHandle, force: bool) {
 /// so a queued writer can never put an older copy back; the "needs saving" mark is cleared
 /// only once the file is written, so a failed save is tried again on the next tick.
 fn persist_position(app: &AppHandle) -> std::io::Result<()> {
-    let _one_at_a_time = unpoisoned(&SAVING);
-    let settings = with(app, |a| a.engine.settings().clone());
-    settings.save(&data_dir())?;
-    with(app, |a| a.position_dirty = a.engine.settings().position != settings.position);
-    Ok(())
+    persistence::flush_position(app.state::<Shared>().inner(), &data_dir())
 }
 
 /// Applies the current settings to everything outside the engine: watches, window flags, autostart.
-fn apply(app: &AppHandle) {
-    let (settings, dirs) = with(app, |a| (a.engine.settings().clone(), a.engine.watch_dirs()));
+fn configure_sources(app: &AppHandle) {
+    let dirs = with(app, |a| a.engine.watch_dirs());
     {
         let state = app.state::<Mutex<Watch>>();
         let mut w = unpoisoned(&state);
@@ -161,6 +160,15 @@ fn apply(app: &AppHandle) {
             }
         }
     }
+    probe(app);
+    let local = with(app, |a| a.engine.local_jobs());
+    run_jobs(app, local);
+    let online = with(app, |a| a.engine.due_online(now()));
+    spawn_jobs(app, online);
+}
+
+fn apply(app: &AppHandle) {
+    let settings = with(app, |a| a.engine.settings().clone());
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_always_on_top(settings.always_on_top);
         #[cfg(target_os = "macos")]
@@ -184,14 +192,7 @@ fn apply(app: &AppHandle) {
         }
     }
     layout(app);
-    let app = app.clone();
-    std::thread::spawn(move || {
-        probe(&app);
-        let local = with(&app, |a| a.engine.local_jobs());
-        run_jobs(&app, local);
-        let online = with(&app, |a| a.engine.due_online(now()));
-        spawn_jobs(&app, online);
-    });
+    let _ = app.state::<ConfigurationWork>().0.try_send(());
 }
 
 fn rect_of(m: &tauri::Monitor) -> Rect {
@@ -309,37 +310,23 @@ fn get_settings(app: AppHandle) -> Settings {
 
 #[tauri::command]
 async fn get_providers(app: AppHandle) -> Vec<ProviderStatus> {
-    probe(&app);
+    let _ = app.state::<ConfigurationWork>().0.try_send(());
     with(&app, |a| a.engine.statuses())
 }
 
 #[tauri::command]
-async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Vec<ProviderStatus>, String> {
-    settings.sanitize();
-    // One save at a time, start to finish: write, apply, detect, announce. A second save
-    // waits here, so the UI can never be told about an older save after a newer one.
-    let _one_at_a_time = unpoisoned(&SAVING);
-    // The window position belongs to the app, not the Settings form.
-    settings.position = with(&app, |a| a.engine.settings().position);
-    // Disk first. If this fails, the running app keeps the settings it had.
-    settings.save(&data_dir()).map_err(|e| e.to_string())?;
-    with(&app, |a| {
-        // The island may have been dragged while the file was being written. Keep where it
-        // is now, and mark that for saving, rather than snapping it back.
-        let now_at = a.engine.settings().position;
-        if now_at != settings.position {
-            settings.position = now_at;
-            a.position_dirty = true;
+async fn save_settings(app: AppHandle, settings: Settings) -> Result<Vec<ProviderStatus>, String> {
+    persistence::save(app.state::<Shared>().inner(), &data_dir(), settings, Settings::save, |settings| {
+        let statuses = with(&app, |a| a.engine.statuses());
+        let _ = app.emit("settings", settings);
+        let handle = app.clone();
+        if let Err(e) = app.run_on_main_thread(move || apply(&handle)) {
+            eprintln!("apply settings: {e}");
         }
-        a.engine.set_settings(settings.clone());
-    });
-    probe(&app);
-    let statuses = with(&app, |a| a.engine.statuses());
-    let _ = app.emit("settings", &settings);
-    let handle = app.clone();
-    app.run_on_main_thread(move || apply(&handle)).map_err(|e| e.to_string())?;
-    emit(&app, true);
-    Ok(statuses)
+        emit(&app, true);
+        statuses
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// The UI reports the size its content needs; the window follows.
@@ -365,8 +352,10 @@ fn list_displays(app: AppHandle) -> Vec<String> {
 }
 
 #[tauri::command]
-fn quit(app: AppHandle) {
+async fn quit(app: AppHandle) -> Result<(), String> {
+    persist_position(&app).map_err(|e| e.to_string())?;
     app.exit(0);
+    Ok(())
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -421,6 +410,14 @@ fn main() {
             })?;
             app.manage(Mutex::new(Watch { watcher, watched: Vec::new() }));
             app.manage(Arc::new(Mutex::new(App { engine: Engine::new(settings), size: (200.0, 32.0), placed_at: Instant::now(), position_dirty: false })));
+            let (config_tx, config_rx) = mpsc::sync_channel(1);
+            app.manage(ConfigurationWork(config_tx));
+            let config_handle = handle.clone();
+            std::thread::spawn(move || {
+                while config_rx.recv().is_ok() {
+                    configure_sources(&config_handle);
+                }
+            });
             if let Some(w) = app.get_webview_window("main") {
                 // Follow the user across virtual desktops and Spaces.
                 let _ = w.set_visible_on_all_workspaces(true);
@@ -430,6 +427,14 @@ fn main() {
             spawn_ticker(handle);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if let Err(e) = persist_position(app) {
+                    eprintln!("settings could not be saved before exit: {e}");
+                    api.prevent_exit();
+                }
+            }
+        });
 }
