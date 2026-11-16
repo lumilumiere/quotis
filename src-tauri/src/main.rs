@@ -47,6 +47,7 @@ struct Published {
 
 struct App {
     engine: Engine,
+    usage_revision: u64,
     /// Logical size the UI asked for; what the window currently shows.
     size: (f64, f64),
     /// Destination of the app's latest placement, to distinguish it from user movement.
@@ -56,7 +57,19 @@ struct App {
 
 type Shared = Arc<Mutex<App>>;
 
+#[derive(Clone, serde::Serialize)]
+struct UiUsage {
+    #[serde(flatten)]
+    snapshot: Snapshot,
+    revision: u64,
+}
+
 impl App {
+    fn usage(&mut self, now: i64) -> UiUsage {
+        self.usage_revision += 1;
+        UiUsage { snapshot: self.engine.snapshot(now), revision: self.usage_revision }
+    }
+
     fn remember_move(&mut self, position: (i32, i32), width: i32) {
         if self.placed_position == Some(position) {
             return;
@@ -129,16 +142,17 @@ fn probe(app: &AppHandle) {
 /// older snapshot after a newer one.
 fn emit(app: &AppHandle, force: bool) {
     let mut published = unpoisoned(&PUBLISH);
-    let snap = with(app, |a| a.engine.snapshot(now()));
+    let usage = with(app, |a| a.usage(now()));
+    let snap = &usage.snapshot;
     let body = serde_json::to_string(&snap.providers).unwrap_or_default();
     let changed = force || body != published.body;
     if changed {
-        let _ = app.emit("usage", &snap);
+        let _ = app.emit("usage", &usage);
         published.body = body;
         published.cache_pending = true;
     }
     if published.cache_pending || published.cache_written.is_none_or(|t| t.elapsed() >= CACHE_HEARTBEAT) {
-        match cache::write(&data_dir(), &snap) {
+        match cache::write(&data_dir(), snap) {
             Ok(()) => {
                 published.cache_written = Some(Instant::now());
                 published.cache_pending = false;
@@ -312,8 +326,8 @@ fn spawn_ticker(app: AppHandle) {
 }
 
 #[tauri::command]
-fn get_usage(app: AppHandle) -> Snapshot {
-    with(&app, |a| a.engine.snapshot(now()))
+fn get_usage(app: AppHandle) -> UiUsage {
+    with(&app, |a| a.usage(now()))
 }
 
 #[tauri::command]
@@ -422,7 +436,13 @@ fn main() {
                 let _ = tx.try_send(event);
             })?;
             app.manage(Mutex::new(Watch { watcher, watched: Vec::new() }));
-            app.manage(Arc::new(Mutex::new(App { engine: Engine::new(settings), size: (200.0, 32.0), placed_position: None, position_dirty: false })));
+            app.manage(Arc::new(Mutex::new(App {
+                engine: Engine::new(settings),
+                usage_revision: 0,
+                size: (200.0, 32.0),
+                placed_position: None,
+                position_dirty: false,
+            })));
             let (config_tx, config_rx) = mpsc::sync_channel(1);
             app.manage(ConfigurationWork(config_tx));
             let config_handle = handle.clone();

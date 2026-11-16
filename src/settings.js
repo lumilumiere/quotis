@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { connectionBadge } from "./connection.js";
+import { connectionBadge, newestUsage } from "./connection.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -128,11 +128,11 @@ $("close").onclick = () => getCurrentWindow().close();
 addEventListener("keydown", (e) => e.key === "Escape" && getCurrentWindow().close());
 
 await listen("usage", (event) => {
-  receivedUsage = event.payload;
+  receivedUsage = newestUsage(receivedUsage, event.payload);
   if (settings) showStatus(providers);
 });
 const [s, list, displays, usage] = await Promise.all([invoke("get_settings"), invoke("get_providers"), invoke("list_displays"), invoke("get_usage")]);
-receivedUsage ??= usage;
+receivedUsage = newestUsage(receivedUsage, usage);
 settings = s;
 providers = list;
 buildTools();

@@ -52,8 +52,26 @@ mod tests {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let app = App { engine: Engine::with_providers(Settings::default(), vec![]), size: (200.0, 32.0), placed_position: None, position_dirty: false };
+        let app = App {
+            engine: Engine::with_providers(Settings::default(), vec![]),
+            usage_revision: 0,
+            size: (200.0, 32.0),
+            placed_position: None,
+            position_dirty: false,
+        };
         (Arc::new(Mutex::new(app)), dir)
+    }
+
+    #[test]
+    fn desktop_capture_order_survives_equal_timestamps_without_changing_cache_schema() {
+        let (app, _) = fixture();
+        let first = unpoisoned(&app).usage(1000);
+        let second = unpoisoned(&app).usage(1000);
+        assert_eq!(first.snapshot.generated_at, second.snapshot.generated_at);
+        assert!(second.revision > first.revision);
+        let mut desktop = serde_json::to_value(&second).unwrap();
+        assert_eq!(desktop.as_object_mut().unwrap().remove("revision"), Some(serde_json::json!(second.revision)));
+        assert_eq!(desktop, serde_json::to_value(&second.snapshot).unwrap(), "only desktop messages carry ordering metadata");
     }
 
     #[test]

@@ -2657,6 +2657,7 @@ version = "2.0.0"
 dependencies = [
  "notify",
  "quotis-core",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",

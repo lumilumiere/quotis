@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { describe, level, percentLeft, refresh, summarize, visible } from "./format.js";
+import { newestUsage } from "./connection.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -196,8 +197,8 @@ $("open-settings").onclick = () => invoke("open_settings");
 $("refresh").onclick = () => invoke("refresh");
 $("quit").onclick = () => invoke("quit");
 
-listen("usage", (e) => {
-  received = e.payload;
+await listen("usage", (e) => {
+  received = newestUsage(received, e.payload);
   render();
 });
 listen("settings", (e) => applySettings(e.payload));
@@ -205,5 +206,5 @@ listen("settings", (e) => applySettings(e.payload));
 setInterval(() => document.visibilityState === "visible" && render(), 30_000);
 
 const [s, usage] = await Promise.all([invoke("get_settings"), invoke("get_usage")]);
-received = usage;
+received = newestUsage(received, usage);
 applySettings(s);
