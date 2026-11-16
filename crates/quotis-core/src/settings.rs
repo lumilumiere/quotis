@@ -128,13 +128,12 @@ impl Settings {
 
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
-        let path = dir.join("settings.json");
-        // Keep the current file as the backup, but only if it is itself good.
-        if std::fs::read_to_string(&path).is_ok_and(|t| Self::try_parse(&t).is_some()) {
-            let _ = std::fs::copy(&path, dir.join(BACKUP));
-        }
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        crate::cache::write_atomic(&path, json.as_bytes())
+        crate::cache::write_atomic(&dir.join("settings.json"), json.as_bytes())?;
+        // A second copy of exactly what was just saved. If the main file is later damaged,
+        // this still holds the user's latest choices, not an older set.
+        let _ = crate::cache::write_atomic(&dir.join(BACKUP), json.as_bytes());
+        Ok(())
     }
 }
 
@@ -219,19 +218,20 @@ mod tests {
     fn a_damaged_settings_file_falls_back_to_the_last_good_one() {
         let dir = crate::fsx::temp_dir("settings-bak");
         assert_eq!(Settings::load(&dir), Settings::default(), "first run");
+        // Everything on, saved. Then Claude is turned off in the very next save.
         let mut s = Settings::default();
-        s.providers.insert("claude".into(), ProviderCfg { enabled: false, dir: String::new() });
         s.save(&dir).unwrap();
+        s.providers.insert("claude".into(), ProviderCfg { enabled: false, dir: String::new() });
         s.refresh_min = 9;
         s.save(&dir).unwrap();
         std::fs::write(dir.join("settings.json"), "{ half written").unwrap();
         let loaded = Settings::load(&dir);
-        assert!(!loaded.providers["claude"].enabled, "a provider that was turned off stays off");
-        assert_eq!(loaded.refresh_min, 5, "the backup is the previous good save");
-        // Saving over a damaged file must not replace the good backup with the damage.
+        assert!(!loaded.providers["claude"].enabled, "the latest choice survives: the provider stays off");
+        assert_eq!(loaded.refresh_min, 9, "the backup is the latest good save, not the one before");
+        // Damage to the backup alone changes nothing.
         loaded.save(&dir).unwrap();
-        std::fs::write(dir.join("settings.json"), "garbage").unwrap();
-        assert!(!Settings::load(&dir).providers["claude"].enabled);
+        std::fs::write(dir.join("settings.json.bak"), "garbage").unwrap();
+        assert_eq!(Settings::load(&dir), loaded);
     }
 
     #[test]

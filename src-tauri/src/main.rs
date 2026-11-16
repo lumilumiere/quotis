@@ -33,13 +33,15 @@ const MAX_CHANGED: usize = 1024;
 const EVENT_QUEUE: usize = 1024;
 
 static SAVING: Mutex<()> = Mutex::new(());
-static PUBLISH: Mutex<Published> = Mutex::new(Published { body: String::new(), cache_written: None });
+static PUBLISH: Mutex<Published> = Mutex::new(Published { body: String::new(), cache_written: None, cache_pending: false });
 
 /// What was last sent out, guarded by the lock that also orders sending.
 struct Published {
     /// The provider part of the last snapshot sent to the UI and written to disk.
     body: String,
     cache_written: Option<Instant>,
+    /// A changed snapshot has not reached the file yet (the write failed): try again at the next emit.
+    cache_pending: bool,
 }
 
 struct App {
@@ -117,25 +119,29 @@ fn emit(app: &AppHandle, force: bool) {
     if changed {
         let _ = app.emit("usage", &snap);
         published.body = body;
+        published.cache_pending = true;
     }
-    if changed || published.cache_written.is_none_or(|t| t.elapsed() >= CACHE_HEARTBEAT) {
+    if published.cache_pending || published.cache_written.is_none_or(|t| t.elapsed() >= CACHE_HEARTBEAT) {
         match cache::write(&data_dir(), &snap) {
-            // Recorded only on success, so a failed write is retried at the next emit.
-            Ok(()) => published.cache_written = Some(Instant::now()),
+            Ok(()) => {
+                published.cache_written = Some(Instant::now());
+                published.cache_pending = false;
+            }
+            // Still pending: the very next emit tries again, changed or not.
             Err(e) => eprintln!("snapshot cache: {e}"),
         }
     }
 }
 
-/// Writes the current settings. The settings are read after the save lock is taken, so a
-/// queued writer can never put an older copy back.
-fn persist(app: &AppHandle) -> std::io::Result<()> {
+/// Saves the island's dragged position. The settings are read after the save lock is taken,
+/// so a queued writer can never put an older copy back; the "needs saving" mark is cleared
+/// only once the file is written, so a failed save is tried again on the next tick.
+fn persist_position(app: &AppHandle) -> std::io::Result<()> {
     let _one_at_a_time = unpoisoned(&SAVING);
-    let settings = with(app, |a| {
-        a.position_dirty = false;
-        a.engine.settings().clone()
-    });
-    settings.save(&data_dir())
+    let settings = with(app, |a| a.engine.settings().clone());
+    settings.save(&data_dir())?;
+    with(app, |a| a.position_dirty = a.engine.settings().position != settings.position);
+    Ok(())
 }
 
 /// Applies the current settings to everything outside the engine: watches, window flags, autostart.
@@ -278,7 +284,7 @@ fn spawn_ticker(app: AppHandle) {
                 (a.engine.due_online(now()), local, a.position_dirty)
             });
             if dirty {
-                if let Err(e) = persist(&app) {
+                if let Err(e) = persist_position(&app) {
                     eprintln!("settings: {e}");
                 }
             }
@@ -310,12 +316,14 @@ async fn get_providers(app: AppHandle) -> Vec<ProviderStatus> {
 #[tauri::command]
 async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Vec<ProviderStatus>, String> {
     settings.sanitize();
-    with(&app, |a| {
-        // The window position belongs to the app, not the Settings form.
-        settings.position = a.engine.settings().position;
-        a.engine.set_settings(settings.clone());
-    });
-    persist(&app).map_err(|e| e.to_string())?;
+    // One save at a time, start to finish: write, apply, detect, announce. A second save
+    // waits here, so the UI can never be told about an older save after a newer one.
+    let _one_at_a_time = unpoisoned(&SAVING);
+    // The window position belongs to the app, not the Settings form.
+    settings.position = with(&app, |a| a.engine.settings().position);
+    // Disk first. If this fails, the running app keeps the settings it had.
+    settings.save(&data_dir()).map_err(|e| e.to_string())?;
+    with(&app, |a| a.engine.set_settings(settings.clone()));
     probe(&app);
     let statuses = with(&app, |a| a.engine.statuses());
     let _ = app.emit("settings", &settings);

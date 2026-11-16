@@ -12,8 +12,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const MAX_BACKOFF: u64 = 3600;
-/// The longest a server's own Retry-After is honoured for.
-const MAX_RETRY_AFTER: u64 = 86_400;
+/// The longest a server's own Retry-After is honoured for: a week. Longer than that is
+/// more likely a broken header than an instruction.
+const MAX_RETRY_AFTER: u64 = 7 * 86_400;
+/// A reading dated further ahead of the clock than this is not believed.
+const FUTURE_SKEW: i64 = 300;
+/// Online jobs for one provider that may be outstanding at once, counting ones written off
+/// after their lease. Stops a collector that hangs every time from piling up threads.
+const MAX_OUTSTANDING: u32 = 3;
 /// An online job that has not reported back after this long is presumed lost: the provider
 /// may be polled again and a late answer from the lost job is ignored.
 const LEASE_SECS: u64 = 180;
@@ -76,6 +82,8 @@ struct State {
     local_seq: u64,
     /// Sequence of the online job currently in flight.
     online_seq: u64,
+    /// Online jobs handed out and not yet reported back.
+    outstanding: u32,
     observed_at: Option<i64>,
     refreshing: bool,
     last_poll: Option<Instant>,
@@ -189,6 +197,23 @@ impl Engine {
         st.refreshing && st.last_poll.is_some_and(|t| t.elapsed().as_secs() < LEASE_SECS)
     }
 
+    /// May another online job be issued for this provider right now?
+    fn free(st: &State) -> bool {
+        !Self::in_flight(st) && st.outstanding < MAX_OUTSTANDING
+    }
+
+    /// Writes off online jobs that have not reported back within their lease, and says so.
+    fn expire_leases(&mut self) {
+        let base = self.base_secs();
+        for st in self.states.values_mut().filter(|st| st.refreshing && !Self::in_flight(st)) {
+            st.refreshing = false;
+            st.fails = st.fails.saturating_add(1);
+            st.backoff = st.backoff.max(base);
+            st.error = Some(ProviderError::new(ErrorKind::Unavailable, "a check did not finish"));
+            st.error_src = Some(Kind::Online);
+        }
+    }
+
     fn enabled(&self) -> impl Iterator<Item = &Arc<dyn Provider>> {
         self.providers.iter().filter(|p| self.states[p.info().id].enabled)
     }
@@ -218,13 +243,14 @@ impl Engine {
     /// Online polls that are due now. Each returned job is marked as refreshing; the caller
     /// must pass its outcome to `finish`.
     pub fn due_online(&mut self, now: i64) -> Vec<Job> {
+        self.expire_leases();
         let base = self.base_secs();
         let due: Vec<Arc<dyn Provider>> = self
             .enabled()
             .filter(|p| p.has_online())
             .filter(|p| {
                 let st = &self.states[p.info().id];
-                if Self::in_flight(st) {
+                if !Self::free(st) {
                     return false;
                 }
                 let Some(last) = st.last_poll else { return true };
@@ -241,12 +267,13 @@ impl Engine {
     /// Online polls the user asked for by hand. Still honours backoff and a 30 second floor,
     /// so a refresh button cannot hammer a provider that asked for patience.
     pub fn refresh_online(&mut self) -> Vec<Job> {
+        self.expire_leases();
         let ready = self
             .enabled()
             .filter(|p| p.has_online())
             .filter(|p| {
                 let st = &self.states[p.info().id];
-                !Self::in_flight(st) && st.last_poll.is_none_or(|t| t.elapsed().as_secs() >= st.backoff.max(30))
+                Self::free(st) && st.last_poll.is_none_or(|t| t.elapsed().as_secs() >= st.backoff.max(30))
             })
             .cloned()
             .collect();
@@ -255,7 +282,8 @@ impl Engine {
 
     /// Online polls for every enabled provider, ignoring the schedule (startup, `--live`).
     pub fn all_online(&mut self) -> Vec<Job> {
-        let all = self.enabled().filter(|p| p.has_online() && !Self::in_flight(&self.states[p.info().id])).cloned().collect();
+        self.expire_leases();
+        let all = self.enabled().filter(|p| p.has_online() && Self::free(&self.states[p.info().id])).cloned().collect();
         self.begin(all)
     }
 
@@ -265,6 +293,7 @@ impl Engine {
             .map(|p| {
                 let st = self.states.get_mut(p.info().id).expect("state");
                 st.refreshing = true;
+                st.outstanding += 1;
                 st.last_poll = Some(Instant::now());
                 st.dirty = false;
                 let job = self.job(p, Kind::Online);
@@ -278,10 +307,14 @@ impl Engine {
     /// since disabled or reconfigured, a local result older than one already recorded, and an
     /// online result from a job that is no longer the one in flight.
     pub fn finish(&mut self, job: &Job, mut outcome: Outcome, now: i64) {
+        self.expire_leases();
         let base = self.base_secs();
         let Some(st) = self.states.get_mut(job.id()) else { return };
         if !st.enabled || st.generation != job.generation {
             return;
+        }
+        if job.kind == Kind::Online {
+            st.outstanding = st.outstanding.saturating_sub(1);
         }
         match job.kind {
             Kind::Local if job.seq < st.local_seq => return,
@@ -289,11 +322,12 @@ impl Engine {
             Kind::Online if job.seq != st.online_seq => return,
             Kind::Online => st.refreshing = false,
         }
-        // A reading cannot be from the future. Without this, one bad timestamp in a log
-        // would outrank every later real reading.
-        if let Some(Ok(c)) = &mut outcome {
-            for m in &mut c.metrics {
-                m.observed_at = m.observed_at.min(now);
+        // A reading dated in the future is not believed, and not re-dated either: stamping
+        // it "now" would dress a bad record up as the freshest one. The pass is reported as
+        // a failure, so the last good numbers stay and the problem is visible.
+        if let Some(Ok(c)) = &outcome {
+            if c.metrics.iter().any(|m| m.observed_at > now + FUTURE_SKEW) {
+                outcome = Some(Err(ProviderError::new(ErrorKind::BadResponse, "a reading is dated in the future; ignored")));
             }
         }
         let is_api = |m: &Metric| m.source == Source::ProviderApi;
@@ -301,6 +335,9 @@ impl Engine {
             // The local source is gone (or this provider has none): its numbers go with it.
             (Kind::Local, None) => {
                 st.metrics.retain(is_api);
+                if st.metrics.is_empty() {
+                    st.notes.clear();
+                }
                 if st.error_src == Some(Kind::Local) {
                     st.error = None;
                 }
@@ -330,7 +367,10 @@ impl Engine {
                 merge(&mut st.metrics, c.metrics);
                 st.notes = c.notes;
                 st.account = c.account;
-                st.error = None;
+                // A local problem is not cured by the online check succeeding.
+                if st.error_src != Some(Kind::Local) {
+                    st.error = None;
+                }
                 st.observed_at = Some(now);
                 st.backoff = 0;
                 st.fails = 0;
@@ -338,7 +378,7 @@ impl Engine {
             (Kind::Online, Some(Err(e))) => {
                 st.fails = st.fails.saturating_add(1);
                 st.backoff = match (e.kind, e.retry_after_secs) {
-                    // The server said when to come back: believe it, up to a day.
+                    // The server said when to come back: believe it.
                     (ErrorKind::RateLimited, Some(secs)) => secs.min(MAX_RETRY_AFTER),
                     (ErrorKind::RateLimited, None) => (st.backoff * 2).clamp(300, MAX_BACKOFF),
                     // The first failure retries on the normal schedule; repeats back off.

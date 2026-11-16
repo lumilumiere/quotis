@@ -2,7 +2,7 @@
 //! These are locally measured usage: there is no allowance in the files, so no quota is shown.
 
 use super::{Info, Provider};
-use crate::fsx::{io_error, jsonl_files, read_new_lines, Checkpoint};
+use crate::fsx::{exists, io_error, jsonl_files, read_new_lines, Checkpoint};
 use crate::model::{Category, Collected, Metric, ProviderError, Source, Unit};
 use crate::settings::home;
 use crate::time::parse_ts;
@@ -25,6 +25,9 @@ const MAX_ENTRIES: usize = 100_000;
 struct FileState {
     checkpoint: Checkpoint,
     entries: Vec<(i64, u64)>,
+    /// Until this time, records from this file are known to be missing (a read skipped
+    /// ahead, or old records were dropped), so totals that include it are lower bounds.
+    partial_until: i64,
 }
 
 pub struct TokenLog {
@@ -110,8 +113,11 @@ impl Provider for TokenLog {
     }
 
     fn collect_local(&self, dir: &Path, now: i64) -> Option<Result<Collected, ProviderError>> {
-        if !logs(dir).is_dir() {
-            return None;
+        match exists(&logs(dir), true) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            // Unreachable is not the same as gone: keep the last numbers and say why.
+            Err(e) => return Some(Err(e)),
         }
         let mut guard = self.files.lock().unwrap_or_else(|e| e.into_inner());
         let (root, files) = &mut *guard;
@@ -122,9 +128,10 @@ impl Provider for TokenLog {
         let cutoff = SystemTime::now() - Duration::from_secs(DAY as u64);
         // ponytail: one metadata walk per pass; contents are read incrementally. Switch to the
         // watcher's changed-path list if a log folder ever grows past MAX_FILES.
-        let recent: Vec<PathBuf> = jsonl_files(&logs(dir), MAX_FILES).into_iter().filter(|(_, m)| *m > cutoff).map(|(p, _)| p).collect();
+        let listing = jsonl_files(&logs(dir), MAX_FILES);
+        let truncated = listing.truncated;
+        let recent: Vec<PathBuf> = listing.files.into_iter().filter(|(_, m)| *m > cutoff).map(|(p, _)| p).collect();
         files.retain(|p, _| recent.contains(p));
-        let mut partial = false;
         let mut failed = None;
         for p in recent {
             let st = files.entry(p.clone()).or_default();
@@ -132,8 +139,11 @@ impl Provider for TokenLog {
                 Ok(new) => {
                     if new.restarted {
                         st.entries.clear();
+                        st.partial_until = 0;
                     }
-                    partial |= new.skipped;
+                    if new.skipped {
+                        st.partial_until = now + DAY;
+                    }
                     st.entries.extend(parse_lines(&new.text));
                 }
                 Err(e) => failed = Some(io_error(&e)),
@@ -142,7 +152,7 @@ impl Provider for TokenLog {
             st.entries.retain(|(ts, _)| (-FUTURE_SKEW..DAY).contains(&(now - ts)));
             if st.entries.len() > MAX_ENTRIES {
                 st.entries.drain(..st.entries.len() - MAX_ENTRIES);
-                partial = true;
+                st.partial_until = now + DAY;
             }
         }
         // A log that could not be read means the total is wrong, not smaller.
@@ -150,9 +160,10 @@ impl Provider for TokenLog {
             return Some(Err(e));
         }
         let mut metrics = usage_metrics(files.values().flat_map(|f| f.entries.iter().copied()), now);
-        if partial {
+        // Remembered across passes: missing history stays missing until it ages out of every window.
+        if truncated || files.values().any(|f| f.partial_until > now) {
             for m in &mut metrics {
-                m.qualification = Some("partial: a log was too large to read in full, so this is a lower bound".into());
+                m.qualification = Some("partial: not every log could be read in full, so this is a lower bound".into());
             }
         }
         Some(Ok(Collected { metrics, ..Default::default() }))
@@ -246,6 +257,22 @@ mod tests {
         assert_eq!(kept, 0);
         let empty = p.collect_local(&dir, now).unwrap().unwrap().metrics[0].used.unwrap();
         assert!(empty == 0.0 && empty.is_sign_positive(), "an empty total is 0, never -0");
+    }
+
+    #[test]
+    fn a_partial_total_stays_marked_partial_on_later_passes() {
+        let dir = crate::fsx::temp_dir("tokenlog-partial");
+        std::fs::create_dir_all(dir.join("tmp")).unwrap();
+        let file = dir.join("tmp/s.jsonl");
+        let now = parse_ts("2026-09-22T10:00:00Z").unwrap();
+        // More than one pass may read: the oldest part is skipped.
+        let filler = format!("{{\"note\":\"{}\"}}\n", "x".repeat(1 << 20));
+        std::fs::write(&file, format!("{}{}", filler.repeat(17), line("2026-09-22T09:00:00Z", 10))).unwrap();
+        let p = TokenLog::gemini();
+        let q = |c: Collected| c.metrics[1].qualification.clone();
+        assert!(q(p.collect_local(&dir, now).unwrap().unwrap()).is_some(), "first pass says it is a lower bound");
+        assert!(q(p.collect_local(&dir, now + 60).unwrap().unwrap()).is_some(), "and so does the next, with nothing new read");
+        assert!(q(p.collect_local(&dir, now + DAY + 1).unwrap().unwrap()).is_none(), "until the gap has aged out of every window");
     }
 
     #[test]

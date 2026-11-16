@@ -41,8 +41,10 @@ impl Provider for OpenCode {
     }
 
     fn collect_local(&self, dir: &Path, now: i64) -> Option<Result<Collected, ProviderError>> {
-        if !db(dir).is_file() {
-            return None;
+        match crate::fsx::exists(&db(dir), false) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => return Some(Err(e)),
         }
         let unreadable = || ProviderError::new(ErrorKind::Unavailable, "can't read opencode.db");
         let Some(c) = open_ro(&db(dir)) else { return Some(Err(unreadable())) };

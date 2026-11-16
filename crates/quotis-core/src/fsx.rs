@@ -12,34 +12,60 @@ const MAX_DIR_ENTRIES: usize = 20_000;
 /// The most a single read takes from one file. Older bytes of a larger file are skipped.
 pub const MAX_READ: u64 = 16 << 20;
 
+/// What a walk found, and whether it saw everything.
+pub struct Listing {
+    pub files: Vec<(PathBuf, SystemTime)>,
+    /// A cap was hit (files, entries in one folder, or depth): there may be more than
+    /// `files` shows. A total built from a truncated listing is a lower bound.
+    pub truncated: bool,
+}
+
 /// Lists regular `.jsonl` files under `dir`, newest directory names first, stopping at `limit`.
 /// Links inside `dir` (symlinks, Windows junctions) are never followed, so nothing planted in
 /// the folder can lead the walk elsewhere or into a loop. `dir` itself is the folder the user
 /// configured and may be a link: people do keep tool folders on another drive.
-pub fn jsonl_files(dir: &Path, limit: usize) -> Vec<(PathBuf, SystemTime)> {
-    let mut out = Vec::new();
+pub fn jsonl_files(dir: &Path, limit: usize) -> Listing {
+    let mut out = Listing { files: Vec::new(), truncated: false };
     walk(dir, 0, limit, &mut out);
     out
 }
 
-fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Vec<(PathBuf, SystemTime)>) {
+fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Listing) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = rd.flatten().take(MAX_DIR_ENTRIES).collect();
+    let mut entries: Vec<_> = rd.flatten().take(MAX_DIR_ENTRIES + 1).collect();
+    if entries.len() > MAX_DIR_ENTRIES {
+        entries.truncate(MAX_DIR_ENTRIES);
+        out.truncated = true;
+    }
     entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
     for e in entries {
-        if out.len() >= limit {
-            return;
-        }
         let Ok(ft) = e.file_type() else { continue };
         let path = e.path();
         if ft.is_dir() {
             if depth < MAX_DEPTH {
                 walk(&path, depth + 1, limit, out);
+            } else {
+                out.truncated = true;
             }
         } else if ft.is_file() && path.extension().is_some_and(|x| x == "jsonl") {
+            if out.files.len() >= limit {
+                out.truncated = true;
+                return;
+            }
             let modified = e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-            out.push((path, modified));
+            out.files.push((path, modified));
         }
+    }
+}
+
+/// Whether a folder (`want_dir`) or file exists. "Not there" is `Ok(false)`; "could not
+/// find out" (access denied, drive offline) is an error, so a caller never mistakes a
+/// source it cannot reach for one that is gone.
+pub fn exists(path: &Path, want_dir: bool) -> Result<bool, ProviderError> {
+    match std::fs::metadata(path) {
+        Ok(m) => Ok(if want_dir { m.is_dir() } else { m.is_file() }),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(io_error(&e)),
     }
 }
 
@@ -48,6 +74,10 @@ fn walk(dir: &Path, depth: usize, limit: usize, out: &mut Vec<(PathBuf, SystemTi
 pub struct Checkpoint {
     pub offset: u64,
     head: u64,
+    /// Size and modification time when last read: a file rewritten in place keeps its size
+    /// but not its time.
+    len: u64,
+    modified: Option<SystemTime>,
 }
 
 pub struct NewLines {
@@ -68,19 +98,21 @@ fn fingerprint(bytes: &[u8]) -> u64 {
 /// Reads the complete lines appended to `path` since the checkpoint, then advances it.
 /// A file that shrank, or whose first bytes changed (replaced or rotated, even to the same
 /// length), is read again from the start. A trailing partial line is left for the next call.
-// ponytail: a replacement that keeps the first 64 bytes and is no shorter looks like an
-// append. Compare file identity (inode / file index) if a tool is ever found to do that.
+// ponytail: a replacement that keeps the first 64 bytes and is longer looks like an append.
+// Compare file identity (inode / file index) if a tool is ever found to do that.
 pub fn read_new_lines(path: &Path, cp: &mut Checkpoint) -> io::Result<NewLines> {
     let mut f = File::open(path)?;
-    let len = f.metadata()?.len();
+    let meta = f.metadata()?;
+    let (len, modified) = (meta.len(), meta.modified().ok());
     let mut head = [0u8; 64];
     let n = f.read(&mut head)?;
     let head = fingerprint(&head[..n]);
-    let restarted = cp.offset > 0 && (len < cp.offset || head != cp.head);
+    let rewritten_in_place = len == cp.len && modified != cp.modified;
+    let restarted = cp.offset > 0 && (len < cp.offset || head != cp.head || rewritten_in_place);
     if restarted {
         cp.offset = 0;
     }
-    cp.head = head;
+    (cp.head, cp.len, cp.modified) = (head, len, modified);
     let skipped = len - cp.offset > MAX_READ;
     if skipped {
         cp.offset = len - MAX_READ;
@@ -182,6 +214,35 @@ mod tests {
     }
 
     #[test]
+    fn a_same_length_rewrite_that_keeps_its_first_bytes_restarts() {
+        // Only a field far into the line changes: same size, same first 64 bytes.
+        let dir = temp_dir("rewrite");
+        let p = dir.join("a.jsonl");
+        let line = |n: u8| format!("{{\"timestamp\":\"2026-09-22T09:00:00Z\",\"type\":\"gemini\",\"padding\":\"{}\",\"total\":{n}}}\n", "x".repeat(40));
+        std::fs::write(&p, line(10)).unwrap();
+        let mut cp = Checkpoint::default();
+        assert!(read_new_lines(&p, &mut cp).unwrap().text.contains(":10}"));
+        std::fs::write(&p, line(90)).unwrap();
+        // Make the rewrite's time differ whatever the clock's resolution.
+        File::options().write(true).open(&p).unwrap().set_modified(SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert!(r.restarted && r.text.contains(":90}"), "{}", r.text);
+        // Untouched since: nothing new, no restart.
+        let r = read_new_lines(&p, &mut cp).unwrap();
+        assert!(!r.restarted && r.text.is_empty());
+    }
+
+    #[test]
+    fn existence_distinguishes_absent_from_unknown() {
+        let dir = temp_dir("exists");
+        std::fs::write(dir.join("f"), "").unwrap();
+        assert_eq!(exists(&dir, true), Ok(true));
+        assert_eq!(exists(&dir.join("f"), true), Ok(false), "a file is not a folder");
+        assert_eq!(exists(&dir.join("f"), false), Ok(true));
+        assert_eq!(exists(&dir.join("nope"), true), Ok(false));
+    }
+
+    #[test]
     fn tail_drops_the_partial_first_line() {
         let dir = temp_dir("readtail");
         let p = dir.join("a.jsonl");
@@ -199,9 +260,10 @@ mod tests {
         std::fs::write(dir.join("2026/02/new.jsonl"), "").unwrap();
         std::fs::write(dir.join("2026/02/notes.txt"), "").unwrap();
         let all = jsonl_files(&dir, 10);
-        assert_eq!(all.len(), 2);
+        assert_eq!((all.files.len(), all.truncated), (2, false));
         let newest = jsonl_files(&dir, 1);
-        assert!(newest[0].0.ends_with("2026/02/new.jsonl"));
+        assert!(newest.files[0].0.ends_with("2026/02/new.jsonl"));
+        assert!(newest.truncated, "stopping at the limit is reported, not silent");
     }
 
     #[cfg(unix)]
@@ -213,7 +275,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, dir.join("link")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
         std::os::unix::fs::symlink(outside.join("secret.jsonl"), dir.join("file.jsonl")).unwrap();
-        assert!(jsonl_files(&dir, 10).is_empty());
+        assert!(jsonl_files(&dir, 10).files.is_empty());
     }
 
     /// Windows directory junctions need no privilege to create, which makes them the easy way
@@ -229,7 +291,7 @@ mod tests {
         let back = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(dir.join("loop")).arg(&dir).output().unwrap();
         assert!(back.status.success());
         assert!(dir.join("link").join("secret.jsonl").exists(), "the junction itself works");
-        assert!(jsonl_files(&dir, 10).is_empty(), "but the walk does not go through it");
+        assert!(jsonl_files(&dir, 10).files.is_empty(), "but the walk does not go through it");
     }
 
     #[test]

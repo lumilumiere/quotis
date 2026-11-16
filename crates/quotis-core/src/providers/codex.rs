@@ -1,5 +1,5 @@
 use super::{Info, Provider};
-use crate::fsx::{jsonl_files, read_small, read_tail};
+use crate::fsx::{exists, io_error, jsonl_files, read_small, read_tail};
 use crate::model::{clean, window_label, Collected, Metric, ProviderError, Source};
 use crate::net::{bad_response, get, not_signed_in};
 use crate::settings::{env_dir, home};
@@ -84,17 +84,31 @@ impl Provider for Codex {
     }
 
     fn collect_local(&self, dir: &Path, _now: i64) -> Option<Result<Collected, ProviderError>> {
-        if !sessions(dir).is_dir() {
-            return None;
+        match exists(&sessions(dir), true) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => return Some(Err(e)),
         }
         // Session folders are sessions/YYYY/MM/DD, so the walk meets the newest files first.
-        let mut files = jsonl_files(&sessions(dir), RECENT_FILES);
+        let mut files = jsonl_files(&sessions(dir), RECENT_FILES).files;
         files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+        let mut unreadable = None;
         let found = files.iter().find_map(|(p, modified)| {
             let mtime = modified.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
-            parse_log(&read_tail(p, TAIL_BYTES).ok()?, mtime)
+            match read_tail(p, TAIL_BYTES) {
+                Ok(text) => parse_log(&text, mtime),
+                Err(e) => {
+                    unreadable = Some(io_error(&e));
+                    None
+                }
+            }
         });
-        Some(Ok(found.unwrap_or_else(|| Collected { notes: vec!["no limit data yet".into()], ..Default::default() })))
+        Some(match (found, unreadable) {
+            (Some(c), _) => Ok(c),
+            // Nothing found, and a log could not be read: that is a failure, not "no data yet".
+            (None, Some(e)) => Err(e),
+            (None, None) => Ok(Collected { notes: vec!["no limit data yet".into()], ..Default::default() }),
+        })
     }
 
     fn collect_online(&self, dir: &Path, now: i64) -> Option<Result<Collected, ProviderError>> {

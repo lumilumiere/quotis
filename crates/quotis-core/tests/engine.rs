@@ -142,7 +142,7 @@ fn rate_limit_backs_off_and_keeps_last_numbers() {
     assert_eq!(e.backoff_secs("fake"), 1800, "no Retry-After: exponential");
     e.age_last_poll("fake", Duration::from_secs(4000));
     poll(&mut e, 5800);
-    assert_eq!(e.backoff_secs("fake"), 86_400, "a server's Retry-After is honoured, up to a day");
+    assert_eq!(e.backoff_secs("fake"), 7 * 86_400, "a server's Retry-After is honoured, up to a week");
 }
 
 #[test]
@@ -440,17 +440,65 @@ fn a_local_pass_replaces_what_the_previous_local_pass_reported() {
 }
 
 #[test]
-fn a_future_dated_local_reading_cannot_outrank_real_ones() {
+fn a_future_dated_local_reading_is_never_believed_however_often_it_is_reread() {
     let fake = Fake::new(&FAKE);
-    // A log line stamped in the year 2100.
-    fake.local.lock().unwrap().push(Ok(quota("q", 99.0, None, Source::LocalLog, 4_102_444_800)));
-    fake.online.lock().unwrap().push(Ok(quota("q", 20.0, None, Source::ProviderApi, 2000)));
+    // A log line stamped in the year 2100, read again on every local pass.
+    let bad = || Ok(quota("q", 99.0, None, Source::LocalLog, 4_102_444_800));
+    fake.local.lock().unwrap().extend([bad(), bad(), Ok(quota("q", 30.0, None, Source::LocalLog, 1290))]);
+    fake.online.lock().unwrap().push(Ok(quota("q", 20.0, None, Source::ProviderApi, 1100)));
     let mut e = engine(fake);
     local(&mut e, 1000);
-    assert_eq!(only(&e, 1000).metrics[0].observed_at, 1000, "an observation is never later than when it was collected");
-    poll(&mut e, 2000);
-    let m = only(&e, 2000).metrics.remove(0);
-    assert_eq!((m.used, m.freshness), (Some(20.0), Freshness::Fresh), "the current API reading wins");
+    let p = only(&e, 1000);
+    assert!(p.metrics.is_empty(), "not shown, and not re-dated to look current");
+    assert_eq!(p.error.as_ref().map(|e| e.kind), Some(ErrorKind::BadResponse), "and the problem is visible");
+    poll(&mut e, 1100);
+    assert_eq!(only(&e, 1100).metrics[0].used, Some(20.0));
+    // The same bad record again, after a real API reading: it must not displace it.
+    local(&mut e, 1200);
+    let p = only(&e, 1200);
+    assert_eq!((p.metrics[0].used, p.metrics[0].observed_at, p.metrics[0].freshness), (Some(20.0), 1100, Freshness::Fresh));
+    assert!(p.error.is_some(), "an online success does not hide a local problem");
+    // A sane local reading is accepted again and clears the error. A few minutes of clock skew is fine.
+    local(&mut e, 1300);
+    let p = only(&e, 1300);
+    assert_eq!((p.metrics[0].used, p.error.is_none()), (Some(30.0), true));
+    let fake = Fake::new(&FAKE);
+    fake.local.lock().unwrap().push(Ok(quota("q", 5.0, None, Source::LocalLog, 1000 + 200)));
+    let mut e = engine(fake);
+    local(&mut e, 1000);
+    assert_eq!(only(&e, 1000).metrics[0].used, Some(5.0));
+}
+
+#[test]
+fn an_online_success_does_not_hide_a_local_failure() {
+    let fake = Fake::new(&FAKE);
+    fake.local.lock().unwrap().push(Err(err(ErrorKind::PermissionDenied)));
+    fake.online.lock().unwrap().push(Ok(quota("api", 50.0, None, Source::ProviderApi, 100)));
+    let mut e = engine(fake);
+    local(&mut e, 100);
+    poll(&mut e, 100);
+    let p = only(&e, 100);
+    assert_eq!((p.metrics.len(), p.error.map(|e| e.kind)), (1, Some(ErrorKind::PermissionDenied)));
+}
+
+#[test]
+fn a_collector_that_hangs_every_time_cannot_pile_up_jobs() {
+    let fake = Fake::new(&FAKE);
+    let mut e = engine(fake);
+    let mut issued = Vec::new();
+    for _ in 0..20 {
+        // Each job is taken and never reported back, then its lease is left to run out.
+        issued.extend(e.due_online(0));
+        e.age_last_poll("fake", Duration::from_secs(100_000));
+    }
+    assert_eq!(issued.len(), 3, "at most three outstanding jobs per provider");
+    let p = only(&e, 0);
+    assert!(!p.refreshing);
+    assert_eq!(p.error.map(|e| e.kind), Some(ErrorKind::Unavailable), "a check that never finished is reported");
+    // When one of them finally reports, a slot frees up.
+    e.finish(&issued[0], Some(Err(err(ErrorKind::Offline))), 0);
+    e.age_last_poll("fake", Duration::from_secs(100_000));
+    assert_eq!(e.due_online(0).len(), 1);
 }
 
 #[test]
@@ -478,6 +526,7 @@ fn a_lost_online_job_does_not_block_polling_forever_and_its_late_answer_is_ignor
     e.age_last_poll("fake", Duration::from_secs(100_000));
     assert!(!only(&e, 0).refreshing, "the UI stops showing a refresh that is not happening");
     assert_eq!(poll(&mut e, 5000), 1, "polling resumes");
+    assert!(only(&e, 5000).error.is_none(), "and a good answer clears the timeout");
     assert_eq!(only(&e, 5000).metrics[0].used, Some(40.0));
     // The lost job finally answers. It must not overwrite the newer result.
     e.finish(&lost, Some(Ok(quota("q", 1.0, None, Source::ProviderApi, 6000))), 6000);
