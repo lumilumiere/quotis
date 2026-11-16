@@ -1,155 +1,155 @@
 # Quotis 2.0 final release readiness
 
-2026-11-16. **Public release: FAIL.** Source repairs and available checks are complete;
-mandatory native/account/install evidence is still missing. UNVERIFIED is not PASS.
+Updated 2026-11-16 after final distribution validation. **Public desktop release: FAIL.**
+UNVERIFIED is not PASS. Feasible source, native process/profile and package work is complete;
+remaining tasks require a disposable OS environment, hardware, authorized accounts or owner decisions.
 
-Source/test commit: `a99290e37365b09df1435712a5d6afa7d5df91d9`, branch `quotis-2.0`, pushed.
-Later report commits change documentation/verification scripts only. Original `fe4c1ef`
-and `f435ec1` remain in the graph. Working implementation was clean at takeover; no code
-followed `fe4c1ef` until this hardening run. No main merge, history rewrite, force-push,
-tag, public release, installer publication, Claude invocation or paid service purchase.
+Final production source: `4718a9b545379d1dfd2799db2d56323bb1d354aa`, pushed to `quotis-2.0`.
+This continues `2938e21`; repairs are `5df6cb0`, `1a0dc36`, `1ee544e`, `4718a9b`.
+Later report/script commits do not alter production behavior. Main remains `f80bc4062ca589a79ef5dbb7a4f45b434b3aa3f7`.
+No main merge, force-push, history rewrite, public tag/release, Claude invocation or paid purchase.
 
 ## Separate decisions
 
-| Distribution / scope | Decision | Evidence and outstanding gate |
+| Scope | Decision | Evidence / remaining gate |
 |---|---|---|
-| Source code | **PASS** | Reproduced/fixed blockers, 130 local Rust tests, 18 JS tests, fresh-context Codex challenge/rechecks, all six CI jobs green. Scoped assessment, not comprehensive security certification |
-| Windows desktop | **UNVERIFIED** | Final executable/NSIS/MSI built; all three launch modes passed fixture collection, normal close and persistence; Island/Panel moves persisted. Full visual interaction, DPI/multiple-monitor and clean installation/upgrade not certified |
-| macOS desktop | **UNVERIFIED** | ARM and Intel CI tests pass; no native overlay, Spaces/glass, install/sign/notarize or Keychain prompt/denial execution |
-| Linux desktop | **UNVERIFIED** | Ubuntu CI tests/build pass; no X11/Wayland native session or package install/remove |
-| Provider monitoring | **UNVERIFIED** | All nine adapters fixture-tested, none compared with an authorized account's actual usage display. Prior credential denial preserved |
-| CLI | **PASS** | 14 contract tests, read-only fixture checks, bounded live collector waiting, qualified text/JSON, actual sealed `status --live` invocation. Real-provider accuracy remains UNVERIFIED; standalone discovery/settings/output are not globally timed |
-| Agensi skill package | **PASS** | Local text-only archive, ten files, validator and four offline scenario groups pass. FREE copy discloses unreleased/live-unverified dependency; actual marketplace delivery and owner licence/privacy sign-off remain UNVERIFIED |
-| Public release | **FAIL** | Required Windows/native-platform/account/install gates remain UNVERIFIED; unsigned artifacts and owner legal/naming review unresolved |
+| Source code | **PASS** | Confirmed repairs, red/green regressions, 131 local Windows Rust tests, 33 JS tests and six successful final-source CI jobs; scoped assessment with documented lifecycle/security limits |
+| Windows desktop | **UNVERIFIED** | Final standalone and extracted MSI each passed 20 native assertions; all three modes, normal close, persistence/restart and resource sampling passed. Clean install/upgrade/uninstall, visual/keyboard/DPI, full stale/network behavior and stable OS coverage remain uncertified |
+| macOS desktop | **UNVERIFIED** | ARM/Intel CI logic/build pass; no native overlay/install/sign/notarize or separate Keychain prompt/denial/timeout evidence |
+| Linux desktop | **UNVERIFIED** | Ubuntu CI logic/build pass; no native X11/Wayland or package install/remove evidence |
+| Provider monitoring | **UNVERIFIED** | Nine fixture-tested adapters; zero authorized real-account/provider-screen comparisons. Previous credential denial preserved |
+| CLI | **PASS** | 14 contracts, isolated read-only live/offline check, unchanged state files, bounded collector wait and qualified output. Real-provider accuracy and arbitrary OS I/O remain outside this PASS |
+| Agensi skill package | **PASS** | Ten text files exactly match archive; structure/content and four offline scenario groups pass; no executable installer |
+| FREE Agensi publication | **UNVERIFIED** | Copy prepared, not uploaded. Draft licence, privacy identity/contact/date, creator authorization/profile, marketplace review and actual MCP delivery remain unresolved |
+| Public desktop release | **FAIL** | Mandatory native/account/distribution gates above remain UNVERIFIED; all Windows artifacts unsigned; publisher/legal/naming decisions unresolved |
 
-## Repairs and review evidence
+## Windows evidence
 
-[Review 0005](reviews/0005-codex-release-hardening.md) records original file/line references,
-reproductions, red/green results and dispositions. [Fresh-context challenge](reviews/0005-fresh-context-challenge.md)
-preserves the reviewer's original five blockers and exact-commit rechecks, including later
-overlay/movement fixes. This was another Codex context; it is not an independent review by
-another implementation/model family. No conclusion was accepted solely because tests passed.
+[Distribution report](DISTRIBUTION_VALIDATION.md), [structured observations](validation/windows-distribution-final.json),
+[native reproduction instructions](NATIVE_RELEASE_CHECKS.md), [artifact hashes](WINDOWS_ARTIFACTS_SHA256SUMS.txt).
+Actual host: Windows 11 Pro x64, build 26300.9818, one display. Tests used unique fixture
+homes/provider directories, copied executables and dedicated WebView profiles. Only synthetic
+Gemini data was enabled. Autostart was not toggled; native actions targeted the recorded
+PID/HWND using UI Automation patterns, with no global input or focus bypass.
 
-Completed changes:
+Forty final native assertions passed: expand/collapse, Settings open/close, provider and
+rapid setting toggles, persisted controls, actual Connected/Issue/recovery text, qualified
+unknown-log counts, last metrics retained during local read failure, normal Quit and settings
+replica agreement. Restart preserved the tested settings. Isolated
+`quotis-cli status --live --offline --json` exited 0 without changing any of four state files.
+These are local synthetic checks, not real provider comparisons.
 
-- Atomic authoritative settings commit record; prepared backup/main failures and failed
-  rollback cannot become committed recovery state. Corrupt existing state disables providers.
-- Serialized settings write/apply/publication, normal-exit position flush and explicit native
-  placement tracking instead of the 400ms movement-discard heuristic.
-- Sequence-set worker accounting across reconfiguration and duplicate reports, local/online
-  caps, exhausted-worker errors, separate persistent source-error provenance.
-- Unknown/malformed telemetry and listing errors retain lower-bound qualifications; global
-  traversal and retained-record budgets, OS file identity and append-boundary checks.
-- Shared live-collector deadline, HTTP-date Retry-After, unshortened delays measured from
-  response receipt, and no second synchronous diagnose probe. Ignored providers/live rejected.
-- Partial totals visible in CLI text/JSON and overlay, including `≥0` rather than plain zero.
+The existing owner installation stayed at 0.2.1 with the same executable SHA256 and registration;
+no Quotis Run entry exists before/after. No host installer/upgrade/uninstall was run. MSI
+administrative payload extraction exited 0 after checking its standard action allowlist; the
+payload differed from standalone only at three Tauri bundle-type marker bytes and passed its
+own 20 native assertions. Extraction does not certify installation.
 
-Known limited concerns remain in RISK_REGISTER.md: arbitrary OS I/O is capped rather than
-cancelled; preserved-metadata in-place rewrites outside sampled bytes can evade detection;
-snapshot authenticity relies on local file permissions; native move API failures can leave
-a destination marker; pill tooltip error detail and hypothetical mixed partial quota ranking
-have low caveats. Upstream GTK/build dependency warnings remain. These are not hidden PASSes.
+Final local build produced executable/NSIS/MSI; the CLI release build also passed. All four
+are **NotSigned**. MSI is machine-wide (ALLUSERS=1); NSIS currentUser. Publisher defaults to
+`github`, requiring an owner decision. Desktop packages supply GUI only; CLI is separate.
+WebView2 bootstrap can require a download when the runtime is absent. Offline installation
+and stable Windows-version compatibility remain UNVERIFIED.
 
-## Final checks
+Sandbox was not started: C: had481,075,200 bytes free at preflight, below Microsoft's 1 GB
+minimum; a repeated optional-feature WMI query also failed for insufficient disk space.
+No owner files were deleted to reclaim space. Foreground-window captures were occluded and
+rejected; no Quotis screenshots or full visual certification are claimed. ComboBox SetValue
+attempts did not change values and are recorded as UNVERIFIED.
 
-All commands adapted to this workspace. Rust local runs used the sealed fixture wrapper,
-with home/config/provider defaults redirected and API-key variables removed. No real logins
-or tool conversations were inspected. Network tests used synthetic loopback HTTP fixtures.
+Final runtime: [raw measurements](validation/windows-runtime-4718a9b.json). First snapshot
+Island/Notch/Panel: 738/426/419 ms; all exited 0 and preserved mode; targeted Island/Panel moves
+persisted. Idle process tree 144.21 MiB private memory,0.466% of one core over 60.36s. Failure
+path 144.28 MiB retained 84-token values with Unavailable. Refresh CPU delta was below the
+observed counter resolution, not zero work. See [performance method/limits](PERFORMANCE_REPORT.md).
 
-| Check on final source | Result |
+## Repairs and final checks
+
+The original hardening is in [review 0005](reviews/0005-codex-release-hardening.md).
+[review 0006](reviews/0006-windows-distribution-validation.md) records newly reproduced native
+badge, event-order, discovery and concurrent-save defects with exact old/current references.
+Desktop capture revisions preserve error ordering without changing CLI/cache schema. Settings
+saves use immutable queued requests; explicit Close/Escape await pending saves. Forced app/
+WebView termination and whole-app quit during unacknowledged drafts are not certified to drain
+those drafts; slow-I/O VM lifecycle checks remain necessary.
+
+A [separate Codex context](reviews/0005-fresh-context-challenge.md) challenged the first badge
+repair, reproduced three problems and rechecked their exact repair commits. This is not a
+review by another model family. Its original adverse findings are preserved. Two final
+Close/Escape regressions were added afterward and reproduced before repair.
+
+| Check | Final source result |
 |---|---|
 | `cargo fmt --all -- --check` | PASS |
-| `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS |
-| `cargo test --workspace --locked` (local Windows) | **130 passed, 0 failed, 0 ignored**: core 78, engine 32, CLI 14, shell 6 |
-| `npm test` | **18 passed, 0 failed, 0 skipped** |
-| `npm run build` | PASS; both entry points |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS locally and CI |
+| `cargo test --workspace --locked` under sealed fixture homes | **131 Windows tests**, 0 failed/ignored: 78 core, 32 engine, 14 CLI, 7 shell |
+| `npm test` | **33 passed**, 0 failed/skipped |
+| `npm run build` | PASS, both entry points |
 | `npm audit` | 0 vulnerabilities |
-| `cargo audit` | 0 vulnerabilities, 2 warnings: RUSTSEC-2024-0370 and RUSTSEC-2024-0429; exit 0 |
-| Full-history secret scanning | PASS in final-source CI; no denied local scanner download retried |
-| Windows production build | PASS, executable plus NSIS/MSI; unsigned |
-| Offline skill checks | 10 text files; four scenario groups passed; no installer in ZIP |
+| `cargo audit` | 0 vulnerabilities;2 allowed upstream warnings (RUSTSEC-2024-0370, RUSTSEC-2024-0429), exit 0 |
+| Full-history secret scanning | PASS in final-source CI; no previously denied scanner/credential access retried |
+| Windows production bundles / CLI | PASS local builds; unsigned, not published |
+| Native UI Automation | 20 standalone +20 extracted-MSI assertions, all PASS |
+| Offline skill | 10 archive/source entries match;4 scenario groups PASS |
 
-Final-source [CI run 43821955837](https://github.com/lumilumiere/quotis/actions/runs/43821955837)
-on `a99290e`: **six jobs passed** (lint, audit, four platform tests). Downloaded job logs
-confirm Windows 130 Rust tests; Ubuntu/macOS ARM/macOS Intel each 131 (one extra Unix core
-permission test); all zero failed/ignored. Each platform ran 18 JS tests successfully.
-CI compiles/checks native code but does not certify visible desktop compatibility.
+Final-source [CI 43861615221](https://github.com/lumilumiere/quotis/actions/runs/43861615221):
+**all six jobs PASS** (lint, audit, Windows, Ubuntu, macOS ARM, macOS Intel). Downloaded logs
+confirm 131 Rust tests on Windows and 132 on each Unix platform (extra Unix permission test);
+each platform passed 33 JS tests, zero failures/ignored. CI does not certify visible UI behavior.
+The separate final report/script commit is identified in Git and the completion message.
 
-An earlier CI run on `72e400c` failed one Windows shell fixture with AccessDenied (3 pass,
-1 fail). PID+timestamp fixture naming was not collision-safe under coarse clocks; an atomic
-counter was added without removing assertions. Subsequent `059ff3f` and final-source CI passed.
-No unexplained failed final gate is being called successful.
+A formatting check initially reported two new Rust layouts; formatting was corrected before
+final checks. An offline metadata probe could not download an uncached Android-only crate;
+the workspace lock acquired only the direct serde edge, and applicable locked builds/tests
+subsequently passed. Earlier native harness failures, corrected fixture checks and old-source
+regressions are recorded in the distribution evidence; none were counted as final passes.
 
-## Windows artifacts and measured runtime
+Security remains scoped: no new unsafe text sink or credential access, desktop-only ordering
+metadata, inherited Windows ACLs, upstream GTK warnings, arbitrary stuck OS calls capped rather
+than cancelled, and local-cache authenticity assumptions remain documented. Passing scanners
+is not comprehensive security verification. [Security](SECURITY_REVIEW.md), [risks](RISK_REGISTER.md).
 
-Local files: `target/release/quotis.exe`, `target/release/quotis-cli.exe`,
-`target/release/bundle/nsis/Quotis_2.0.0_x64-setup.exe`,
-`target/release/bundle/msi/Quotis_2.0.0_x64_en-US.msi`.
-[SHA256 manifest](WINDOWS_ARTIFACTS_SHA256SUMS.txt). Desktop binary hash:
-`E98B67BB581DC2C6C58114662EA7E93222459630E43860EEAEB6B45D58610142`.
-Installers were built and retained, **not installed**, not uploaded or released.
+## Provider and FREE Agensi evidence
 
-[Final production runtime data](validation/windows-runtime-a99290e.json): Island/Notch/Panel
-startup to fixture snapshot 3,238 / 3,732 / 2,338 ms, all exit 0; saved modes and targeted Island/Panel
-moves persisted. Idle tree 144.00 MiB private memory, 0.517% of one core over 60.39 s. Forced local
-read failure kept 84-token values with Unavailable at 144.23 MiB. See
-[PERFORMANCE_REPORT.md](PERFORMANCE_REPORT.md) for method, refresh cost and limitations.
-The prior approximately 145 MB result is consistent; 120 MB is not an absolute gate.
+[Provider matrix](PROVIDER_MATRIX.md): all nine real integrations **UNVERIFIED**. No newly
+authorized account/local data was supplied, so no real connection, usage display, matching
+account timestamp or reset comparison was obtained. Local synthetic counts are not a substitute.
 
-Four earlier WebView debugger attempts (including a debug build) reached snapshots but
-discovery returned ECONNREFUSED. No new successful DOM click-through or screenshots are
-claimed. The final runtime script uses only its own child HWND/process, without global
-input. It verifies state transitions/data, not visual appearance. Only one display was
-available; no OS display/scaling changes were made.
+Ignored separate commercial repository: local branch `codex-free-distribution-validation`,
+commit `2e2ae19b08668ca3c214447b29399d03b47fb023`; not pushed. Candidate:
+`commercial/dist/quotis-ai-usage-intelligence-1.0.0.zip`, **20,415 bytes**, 10 text files,
+SHA256 `CD4C89BABF8C748B9C8A6911E75848B960DE05DCC79FC9419896F9DD98F252C7`.
+Previous ZIPs preserved. `node commercial/validate.mjs` and `node scripts/validate-skill.mjs`
+pass; archive bytes match source. These are deterministic structure/arithmetic checks, not
+marketplace delivery or model reliability certification. No Claude test was rerun.
 
-One validation debug build failed when drive D filled. Policy rejected direct recursive
-incremental-cache deletion; `cargo clean -p quotis --profile dev` safely reclaimed generated
-outputs while preserving source/release files. A first isolated-environment NSIS attempt
-panicked inside the bundler; normal-environment builds subsequently produced both installers.
-The actual failure results are retained rather than counted as passes.
+[FREE listing](AGENSI_FREE_LISTING.md) discloses historical offline demo, unreleased separate
+CLI, GUI-only installers, fixture/live limits and approved optional network/credential access.
+Privacy boundaries and permission-denial instructions were corrected. No desktop installer
+is bundled. Actual publication still requires the owner's licence/privacy/contact decisions
+and an authorized creator session; no upload or account mutation was attempted.
 
-## Provider verification
+## Exact remaining owner/environment actions
 
-`quotis-cli status --live` was executed under a sealed empty fixture profile and returned
-"No providers connected", exit 0. This verified command execution without reading real
-credentials; it is **not** a live account test or provider-display comparison. Positive local
-fixtures and error conditions are covered by maintained tests/runtime data.
-[PROVIDER_MATRIX.md](PROVIDER_MATRIX.md) records all nine providers as live-UNVERIFIED,
-with sources, reset-window limitations and exact authorized-account comparison instructions.
-No unsupported provider is represented as working.
+1. Provision a disposable Windows VM/Sandbox with adequate disk space and trusted WebView2.
+   Test NSIS and MSI independently: actual install, launch, settings, quit, uninstall and
+   registration cleanup; restore snapshots. Install a verified 0.2.1 in a safe VM and test
+   upgrade/migration without touching the owner's working copy. Test slow saves/whole-app
+   exit with Settings open. Retain installer hashes, logs and observations.
+2. On suitable native hardware, perform visual/keyboard/theme/mode/DPI/multi-monitor,
+   stale-age and network-failure checks. This host's preview-build/scoped UIA evidence does
+   not establish stable Windows support. Execute native macOS ARM/Intel, separate Keychain
+   prompt/deny/timeout and Linux X11/Wayland/package tests using NATIVE_RELEASE_CHECKS.md.
+3. Explicitly authorize named provider test accounts/data; compare each advertised adapter
+   with its own usage interface at matching UTC timestamps and record reset/source/errors.
+   Stop on denial. Credentials must not be printed or repurposed.
+4. Decide publisher identity, signing/notarization or an explicit unsigned-distribution
+   policy; resolve naming, licence/privacy/contact/date and undocumented-endpoint terms.
+   Signing credentials require separate explicit authorization.
+5. Complete Agensi creator account/profile and owner legal decisions. Rebuild/revalidate the
+   ZIP after edits, submit as **FREE**, retain disclosures, pass marketplace review and
+   verify actual MCP delivery. No payout setup or paid purchase is needed for FREE under
+   the checked [Agensi rules](https://www.agensi.io/docs/pricing-your-skill).
 
-## FREE Agensi artifact
-
-The ignored workspace exists as a separate local repository, commit
-`718f848dca9e5a3d902b60406d4cb116d957f56f`; it was not pushed. Rebuilt archive:
-`commercial/dist/quotis-ai-usage-intelligence-1.0.0.zip`, **19,970 bytes**, ten text files.
-SHA256: `449EEF1798A41B65C110EB5A716531613B4913C5445DA23B027B34364E4A9488`.
-The original ZIP was preserved as `*-before-hardening.zip` locally.
-
-`node commercial/validate.mjs` and `node scripts/validate-skill.mjs` pass. Offline groups:
-capacity/freshness, normalized percent/money projections, expired historical data, and
-permission/partial-output boundaries. These are deterministic checks and Codex content
-review, not model reliability trials or an Agensi delivery test. No Claude scenarios rerun.
-[FREE listing copy](AGENSI_FREE_LISTING.md) removes the former paid offer and discloses
-historical samples, unreleased 2.0 dependency, fixture-only integrations and privacy boundaries.
-No executable installer is in the package. No listing or account mutation was performed.
-
-## Exact remaining human/environment tasks
-
-1. Authorize named test accounts/local data and compare every advertised provider against
-   its actual usage screen, recording timestamps/windows/errors. Stop on denial.
-2. Complete Windows visual/keyboard/settings/stale/error checks and multiple-monitor/DPI
-   tests on suitable hardware; the scoped runtime result is not that full test.
-3. Run native macOS ARM/Intel overlay and separate Keychain prompt/deny/timeout checks;
-   run Linux X11/Wayland desktop and packaging checks on real native sessions.
-4. Test NSIS/MSI installation/removal and safe 0.2.1 upgrade in disposable VMs. Preserve
-   evidence and do not replace the user's current installation.
-5. Supply signing/notarization credentials only with explicit authorization, or make an
-   explicit unsigned-distribution decision; resolve naming, privacy/licence and endpoint terms.
-6. Use an authorized Agensi creator account to submit the reviewed ZIP as FREE with current
-   disclosures, verify actual MCP delivery and complete marketplace review. No payout setup
-   or paid purchase is needed for the prepared FREE listing.
-
-[NATIVE_RELEASE_CHECKS.md](NATIVE_RELEASE_CHECKS.md) provides reproducible hardware/VM steps.
-No background app/reviewer work is left running when this report is delivered. Do not merge
-main or create a public tag/release while the decision remains FAIL.
+No background app, build or review work remains when this report is delivered. Main and the
+owner installation are preserved. Do not create a public desktop release while gates fail.

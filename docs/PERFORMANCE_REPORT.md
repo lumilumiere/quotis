@@ -1,6 +1,38 @@
 # Performance report
 
-## Final repaired Windows build, 2026-11-16
+## Final distribution candidate, 2026-11-16
+
+Production source `4718a9b545379d1dfd2799db2d56323bb1d354aa`, executable SHA256
+`F050BD9CF94AAB83DC75DCD5B0EE12077D7119EF1D85DCE4BBF9960EF2E59BAE`.
+[Retained final sample](validation/windows-runtime-4718a9b.json), using
+[windows-runtime.ps1](../scripts/windows-runtime.ps1). Only synthetic local files;
+all account providers disabled, isolated home/config/WebView folders on drive D.
+
+| Metric | Measured result |
+|---|---|
+| First snapshot: Island / Notch / Panel | 738 / 426 / 419 ms; snapshot availability, not fully painted UI |
+| Idle CPU over 60.355 s | 0.28125 CPU-seconds; **0.466% of one core**, about 0.058% across 8 logical processors |
+| Idle private memory, app plus WebView descendants | **144.21 MiB** |
+| Summed working set | 341.73 MiB; shared pages can be counted repeatedly |
+| Normal local-refresh CPU delta | 0 measured CPU-seconds over 3 s plus sampling; below observed counter resolution, not zero work |
+| Forced local-read failure | Last 84-token metrics retained with Unavailable; **144.28 MiB**, 0.0625 CPU-seconds over 18 s plus sampling |
+| Native lifecycle | All 3 modes start/collect/exit0/persist; targeted Island/Panel moves survive immediate normal close |
+
+Same host as below: Windows 11 Pro x64 build 26300.9818, i5-1135G7, 8 logical
+processors and approximately 15.7 GiB RAM. Other desktop applications were running.
+The sample sums only the child process tree; startup/working-set timing remains sensitive
+to OS caches, WebView2 and unrelated load. WebView profiles are fresh per runtime run,
+then shared across its three mode launches. No monitor/scaling settings changed.
+
+After a 20 s settling period, the script samples process CPU counters and private/working
+set totals 60 s apart. Normal refresh appends a tiny record; failure holds a new source
+file exclusively. It is a short local workload, not a broad benchmark or network-failure
+stress test. It uses only owned HWND movement/close, with no global input. These values
+are consistent with the prior approximately 145 MB observation; 120 MB is not an absolute
+gate for OS WebView overhead. Longer sessions, other hardware/OSes, larger logs and
+native network-failure resource behavior remain UNVERIFIED.
+
+## Earlier repaired Windows build (a99290e), retained baseline
 
 Measured production source `a99290e37365b09df1435712a5d6afa7d5df91d9`, binary SHA256
 `E98B67BB581DC2C6C58114662EA7E93222459630E43860EEAEB6B45D58610142`.

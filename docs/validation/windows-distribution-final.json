@@ -1,0 +1,729 @@
+{
+  "timestamp": "2026-11-16T12:01:25.0449394Z",
+  "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+  "host": {
+    "logicalProcessors": 8,
+    "cpu": "Intel Core i5-1135G7",
+    "caption": "Microsoft Windows 11 Pro",
+    "displayCount": 1,
+    "displayVersion": "26H2",
+    "architecture": "x64",
+    "version": "10.0.26300.9818",
+    "visibleMemoryKiB": 16464208
+  },
+  "scope": "process/profile isolation, not OS installation certification",
+  "standalone": {
+    "binarySha256": "F050BD9CF94AAB83DC75DCD5B0EE12077D7119EF1D85DCE4BBF9960EF2E59BAE",
+    "profile": "<isolated fixture profile>",
+    "globalInputUsed": false,
+    "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "visualCertification": "UNVERIFIED: unrelated foreground application occludes window-region captures",
+    "results": [
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:56:58.5874456Z",
+        "name": "native empty-state button available"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:56:58.7508417Z",
+        "name": "native expand callback and accessible details"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:56:59.1658753Z",
+        "name": "Settings opens through native control"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:56:59.3595691Z",
+        "name": "native provider toggle persists to committed settings"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:56:59.3669832Z",
+        "name": "isolated local source collects42 tokens"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:56:59.432135Z",
+        "name": "Settings badge updates to Connected without reopening"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:00.117262Z",
+        "name": "rapid native provider changes retain final disk and runtime choice"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:00.1855276Z",
+        "name": "rapid native provider changes leave control enabled"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:00.2822089Z",
+        "name": "native glass control persists"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:00.4732548Z",
+        "name": "native hover_expand control persists"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:00.6747203Z",
+        "name": "native always_on_top control persists"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:01.0088375Z",
+        "name": "unknown log coverage reaches native overlay as lower bound"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:01.3646415Z",
+        "name": "native read failure retains last metrics with error"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:01.4271285Z",
+        "name": "Settings badge updates to Issue on collection error"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:01.8453385Z",
+        "name": "Settings badge recovers after local error"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:02.0914249Z",
+        "name": "Settings closes and main remains available"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:02.1986634Z",
+        "name": "native collapse callback"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:02.2793917Z",
+        "name": "details can reopen"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:02.4397924Z",
+        "name": "normal quit through native button"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:02.4519973Z",
+        "name": "settings replicas agree after normal quit"
+      }
+    ]
+  },
+  "msiPayload": {
+    "binarySha256": "06AAD8B7DE5B232C15B0737A912C7AE02929EE7621E7E9CD3F84503CE97174ED",
+    "profile": "<isolated fixture profile>",
+    "globalInputUsed": false,
+    "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "visualCertification": "UNVERIFIED: unrelated foreground application occludes window-region captures",
+    "results": [
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:06.4516503Z",
+        "name": "native empty-state button available"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:06.5829136Z",
+        "name": "native expand callback and accessible details"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:06.9284562Z",
+        "name": "Settings opens through native control"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:07.1043538Z",
+        "name": "native provider toggle persists to committed settings"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:07.1061351Z",
+        "name": "isolated local source collects42 tokens"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:07.3257813Z",
+        "name": "Settings badge updates to Connected without reopening"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:07.9847532Z",
+        "name": "rapid native provider changes retain final disk and runtime choice"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:08.0383917Z",
+        "name": "rapid native provider changes leave control enabled"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:08.2044675Z",
+        "name": "native glass control persists"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:08.4032826Z",
+        "name": "native hover_expand control persists"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:08.6035339Z",
+        "name": "native always_on_top control persists"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:09.0643058Z",
+        "name": "unknown log coverage reaches native overlay as lower bound"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:09.4058332Z",
+        "name": "native read failure retains last metrics with error"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:09.4655759Z",
+        "name": "Settings badge updates to Issue on collection error"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:09.8445081Z",
+        "name": "Settings badge recovers after local error"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:10.0524648Z",
+        "name": "Settings closes and main remains available"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:10.1652407Z",
+        "name": "native collapse callback"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:10.2526689Z",
+        "name": "details can reopen"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:10.4154461Z",
+        "name": "normal quit through native button"
+      },
+      {
+        "result": "PASS",
+        "timestamp": "2026-11-16T11:57:10.4179201Z",
+        "name": "settings replicas agree after normal quit"
+      }
+    ]
+  },
+  "restart": {
+    "binarySha256": "06AAD8B7DE5B232C15B0737A912C7AE02929EE7621E7E9CD3F84503CE97174ED",
+    "fixtureTokens": 42,
+    "globalInputUsed": false,
+    "timestamp": "2026-11-16T11:58:26.8816952Z",
+    "startupWindowAndCollection": "PASS",
+    "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "persistedFields": [
+      "glass",
+      "hover_expand",
+      "always_on_top",
+      "gemini.enabled",
+      "mode"
+    ],
+    "exitCode": 0
+  },
+  "cliReadOnly": {
+    "scope": "synthetic local fixture only; no account comparison",
+    "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "stdout": {
+      "age_seconds": 0,
+      "command": "status",
+      "data": [
+        {
+          "error": null,
+          "id": "claude",
+          "metrics": [],
+          "name": "Claude Code",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "codex",
+          "metrics": [],
+          "name": "Codex",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "copilot",
+          "metrics": [],
+          "name": "GitHub Copilot",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "cursor",
+          "metrics": [],
+          "name": "Cursor",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "gemini",
+          "metrics": [
+            {
+              "category": "local_usage",
+              "freshness": "fresh",
+              "id": "tokens_5h",
+              "label": "5h",
+              "observed_at": 1794830307,
+              "qualification": "partial: not every log could be read in full, so this is a lower bound",
+              "source": "local_log",
+              "unit": "tokens",
+              "used": 42,
+              "window_seconds": 18000
+            },
+            {
+              "category": "local_usage",
+              "freshness": "fresh",
+              "id": "tokens_24h",
+              "label": "24h",
+              "observed_at": 1794830307,
+              "qualification": "partial: not every log could be read in full, so this is a lower bound",
+              "source": "local_log",
+              "unit": "tokens",
+              "used": 42,
+              "window_seconds": 86400
+            }
+          ],
+          "name": "Gemini CLI",
+          "notes": [],
+          "status": "connected"
+        },
+        {
+          "error": null,
+          "id": "qwen",
+          "metrics": [],
+          "name": "Qwen Code",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "opencode",
+          "metrics": [],
+          "name": "opencode",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "openrouter",
+          "metrics": [],
+          "name": "OpenRouter",
+          "notes": [],
+          "status": "disabled"
+        },
+        {
+          "error": null,
+          "id": "deepseek",
+          "metrics": [],
+          "name": "DeepSeek",
+          "notes": [],
+          "status": "disabled"
+        }
+      ],
+      "generated_at": 1794830307,
+      "schema_version": 1,
+      "source": "live_local_only",
+      "stale": false
+    },
+    "timestamp": "2026-11-16T11:58:27.0752168Z",
+    "stateFilesUnchanged": true,
+    "command": "quotis-cli status --live --offline --json",
+    "exitCode": 0,
+    "stderr": ""
+  },
+  "installerInspection": {
+    "properties": [
+      [
+        "UpgradeCode",
+        "{38F8D64F-ECE7-5519-BC6D-8603B3724DB4}"
+      ],
+      [
+        "WIXUI_EXITDIALOGOPTIONALCHECKBOX",
+        "1"
+      ],
+      [
+        "WIXUI_INSTALLDIR",
+        "INSTALLDIR"
+      ],
+      [
+        "WixUIRMOption",
+        "UseRM"
+      ],
+      [
+        "ALLUSERS",
+        "1"
+      ],
+      [
+        "ARPNOMODIFY",
+        "1"
+      ],
+      [
+        "ARPNOREPAIR",
+        "yes"
+      ],
+      [
+        "REINSTALLMODE",
+        "amus"
+      ],
+      [
+        "ARPPRODUCTICON",
+        "ProductIcon"
+      ],
+      [
+        "WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT",
+        "Launch Quotis"
+      ],
+      [
+        "Manufacturer",
+        "github"
+      ],
+      [
+        "ProductCode",
+        "{D765BDDC-1003-4724-A5A2-04A3D843F422}"
+      ],
+      [
+        "ProductLanguage",
+        "1033"
+      ],
+      [
+        "ProductName",
+        "Quotis"
+      ],
+      [
+        "ProductVersion",
+        "2.0.0"
+      ],
+      [
+        "DefaultUIFont",
+        "WixUI_Font_Normal"
+      ],
+      [
+        "WixUI_Mode",
+        "InstallDir"
+      ],
+      [
+        "ErrorDialog",
+        "ErrorDlg"
+      ],
+      [
+        "SecureCustomProperties",
+        "ARPNOREPAIR;AUTOLAUNCHAPP;LAUNCHAPPARGS;WIX_UPGRADE_DETECTED"
+      ]
+    ],
+    "adminExecuteSequence": [
+      [
+        "CostInitialize",
+        "",
+        "800"
+      ],
+      [
+        "FileCost",
+        "",
+        "900"
+      ],
+      [
+        "CostFinalize",
+        "",
+        "1000"
+      ],
+      [
+        "InstallValidate",
+        "",
+        "1400"
+      ],
+      [
+        "InstallInitialize",
+        "",
+        "1500"
+      ],
+      [
+        "InstallAdminPackage",
+        "",
+        "3900"
+      ],
+      [
+        "InstallFiles",
+        "",
+        "4000"
+      ],
+      [
+        "InstallFinalize",
+        "",
+        "6600"
+      ]
+    ],
+    "launchCondition": {
+      "unavailable": "OpenView,Sql"
+    },
+    "preflight": {
+      "systemFreeBytes": 481075200,
+      "sandboxFeature": "UNVERIFIED: There is not enough space on the disk. ",
+      "sandboxStarted": false,
+      "ownerInstallPresent": true,
+      "workspaceFreeBytes": 777232384,
+      "reason": "System-volume free space below 1 GB; host installation excluded to preserve owner0.2.1"
+    },
+    "fileTable": [
+      [
+        "Path",
+        "Path",
+        "quotis.exe",
+        "9044992",
+        "2.0.0.0",
+        "0",
+        "1536",
+        "1"
+      ]
+    ],
+    "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "sha256": "F7D9D3A685DC22C157C90F46817FB85106E594F801D333D8E2B309F6C977DFA7",
+    "timestamp": "2026-11-16T11:57:02.7427196Z",
+    "signing": [
+      {
+        "sha256": "F050BD9CF94AAB83DC75DCD5B0EE12077D7119EF1D85DCE4BBF9960EF2E59BAE",
+        "file": "target/release/quotis.exe",
+        "status": "NotSigned"
+      },
+      {
+        "sha256": "1AA0CDD56504D20865377F3AE7ECC01C86C6A0EB57B82A1C164D0CC9D464073D",
+        "file": "target/release/quotis-cli.exe",
+        "status": "NotSigned"
+      },
+      {
+        "sha256": "8E041EAB2C83B5B9C046466848CC4983BF3F211624693CF96ED9A97265AFE7F7",
+        "file": "target/release/bundle/nsis/Quotis_2.0.0_x64-setup.exe",
+        "status": "NotSigned"
+      },
+      {
+        "sha256": "F7D9D3A685DC22C157C90F46817FB85106E594F801D333D8E2B309F6C977DFA7",
+        "file": "target/release/bundle/msi/Quotis_2.0.0_x64_en-US.msi",
+        "status": "NotSigned"
+      }
+    ]
+  },
+  "msiAdministrativeExtraction": {
+    "timestamp": "2026-11-16T11:57:05.3290961Z",
+    "files": [
+      {
+        "relativePath": "PFiles\\Quotis\\quotis.exe",
+        "sha256": "06AAD8B7DE5B232C15B0737A912C7AE02929EE7621E7E9CD3F84503CE97174ED",
+        "bytes": 9044992
+      }
+    ],
+    "msiSha256": "F7D9D3A685DC22C157C90F46817FB85106E594F801D333D8E2B309F6C977DFA7",
+    "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "output": "<isolated repository extraction>",
+    "exitCode": 0,
+    "operation": "MSI administrative payload extraction only, not installation"
+  },
+  "payloadComparison": {
+    "differentBytes": 3,
+    "offsets": [
+      7033659,
+      7033660,
+      7033661
+    ],
+    "standaloneContext": "_TAURI_BUNDLE_TYPE_VAR_UNK",
+    "msiContext": "_TAURI_BUNDLE_TYPE_VAR_MSI",
+    "allOtherBytesEqual": true
+  },
+  "productCodeNotRegistered": {
+    "HKCU:": true,
+    "HKLM:": true
+  },
+  "ownerAfter": {
+    "registrationPresent": true,
+    "runEntryPresent": {
+      "HKLM:": false,
+      "HKCU:": false
+    },
+    "unchanged": true,
+    "executableHash": "20D62B16DAE3B3F227B7BA88F532340A210DE406EB11E46090D34DCEC1D5E02C",
+    "timestamp": "2026-11-16T11:58:48.2029822Z",
+    "displayVersion": "0.2.1"
+  },
+  "skillPackage": {
+    "bytes": 20415,
+    "sourceCommit": "2e2ae19b08668ca3c214447b29399d03b47fb023",
+    "timestamp": "2026-11-16T11:50:36.082092Z",
+    "allMatchSource": true,
+    "entryCount": 10,
+    "files": [
+      {
+        "path": "LICENSE.md",
+        "sha256": "9B8EC66A42FBC69797C5DEF5D2A06448B7F2C2F0E9E6A51D41F23A55CB2E1FC5",
+        "bytes": 873
+      },
+      {
+        "path": "README.md",
+        "sha256": "7542C4D41519478098B89AD35687089C8A4E0E8FA222107ED0651C5A3F474108",
+        "bytes": 3698
+      },
+      {
+        "path": "SKILL.md",
+        "sha256": "A9858D1566902E06F7EAC81899CC9F004D4B7DB701AEC83ED22403652818A162",
+        "bytes": 7900
+      },
+      {
+        "path": "examples/sample-export.json",
+        "sha256": "28C58CB000B8BF0CA750489F97E44F01B45F6F0BE79AFE68A5CA8FDCF7FEB174",
+        "bytes": 5965
+      },
+      {
+        "path": "examples/workflows.md",
+        "sha256": "2BE704A77F00C13F889A73D4ADF35C2DB17D50F2FF3B22EB767015B12BA66A89",
+        "bytes": 5525
+      },
+      {
+        "path": "references/metrics.md",
+        "sha256": "F52D6392545F90141E530CCB9DE56A9EE91FF58CAB225D11EC2759C4DB3BFD25",
+        "bytes": 5181
+      },
+      {
+        "path": "references/planning-playbook.md",
+        "sha256": "F01E1C086A3CAC95D242D0721A35BEBDDFB8BF1870A060ACCA7F492CB0DE6BFE",
+        "bytes": 6090
+      },
+      {
+        "path": "references/providers.md",
+        "sha256": "704FA36F59F8196582744CF653457C41D91BC91430503BD616A134D3F0E8EF31",
+        "bytes": 3121
+      },
+      {
+        "path": "references/security.md",
+        "sha256": "57D4AB3B416A1AD444CF863E100A451A6E545654FD793D67473101D731AE2AB2",
+        "bytes": 2659
+      },
+      {
+        "path": "references/troubleshooting.md",
+        "sha256": "D2EDF890DE3540257619E3BBA66417C849540B1E4F4BB061711FCD8E04B98B25",
+        "bytes": 4381
+      }
+    ],
+    "offlineScenarioGroups": 4,
+    "sha256": "CD4C89BABF8C748B9C8A6911E75848B960DE05DCC79FC9419896F9DD98F252C7",
+    "publication": "UNVERIFIED: draft license, unresolved privacy identity/date and no authorized creator session"
+  },
+  "earlierHarnessFailures": [
+    {
+      "source": "5df6cb03d081722d8157f9a1979649d2fb0a52d1",
+      "binarySha256": "75435933AD67F0863C0B6D5CD3F095CEB3B57AD5CF11B3C309D54F59C254ADB8",
+      "failedChecks": [
+        {
+          "result": "FAIL",
+          "name": "Settings badge updates to Issue on collection error",
+          "timestamp": "2026-11-16T11:21:28.4381981Z"
+        }
+      ]
+    },
+    {
+      "source": "5df6cb03d081722d8157f9a1979649d2fb0a52d1",
+      "binarySha256": "75435933AD67F0863C0B6D5CD3F095CEB3B57AD5CF11B3C309D54F59C254ADB8",
+      "failedChecks": [
+        {
+          "detail": "Expected one CheckBox / ^Gemini CLIIssue$",
+          "name": "Settings badge updates to Issue on collection error",
+          "timestamp": "2026-11-16T11:25:03.6029429Z",
+          "result": "FAIL"
+        }
+      ]
+    },
+    {
+      "source": "5df6cb03d081722d8157f9a1979649d2fb0a52d1",
+      "binarySha256": "75435933AD67F0863C0B6D5CD3F095CEB3B57AD5CF11B3C309D54F59C254ADB8",
+      "failedChecks": [
+        {
+          "timestamp": "2026-11-16T11:26:18.0956018Z",
+          "result": "FAIL",
+          "name": "normal quit through native button",
+          "detail": null
+        }
+      ]
+    }
+  ],
+  "sourceCI": {
+    "conclusion": "success",
+    "headSha": "4718a9b545379d1dfd2799db2d56323bb1d354aa",
+    "jobs": [
+      {
+        "name": "audit",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221/job/133279582566"
+      },
+      {
+        "name": "test (ubuntu-22.04)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221/job/133279582876"
+      },
+      {
+        "name": "test (macos-15-intel)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221/job/133279582885"
+      },
+      {
+        "name": "test (windows-latest)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221/job/133279582980"
+      },
+      {
+        "name": "test (macos-latest)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221/job/133279582988"
+      },
+      {
+        "name": "lint",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221/job/133279583051"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/lumilumiere/quotis/actions/runs/43861615221"
+  },
+  "unverified": [
+    "installation/upgrade/uninstall",
+    "visual appearance/keyboard/multiple monitors/DPI",
+    "native stale-age interval",
+    "native network-failure behavior",
+    "native macOS/Keychain and Linux",
+    "all real provider accounts",
+    "signing identity and legal decisions",
+    "Agensi creator submission/review/MCP delivery"
+  ]
+}

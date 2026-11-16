@@ -22,6 +22,9 @@ an unverified development executable merely to use this skill. No installer is i
 Quotis 0.2.1 does not provide this CLI/export contract. Until a verified release is available,
 use the bundled sample or a user-supplied compatible export.
 
+Current Windows desktop installers contain the GUI only. They do not install the optional
+CLI or add it to PATH; obtain a verified matching CLI separately when one is released.
+
 Adapters exist for Claude Code, Codex, Copilot, Cursor, Gemini CLI, Qwen Code, opencode,
 OpenRouter and DeepSeek. They are fixture-tested, **live-unverified in this release run**.
 Four use undocumented endpoints. No agreement with current provider displays is claimed.
@@ -50,3 +53,8 @@ FREE listings require no payout method; account/profile and review remain necess
 
 Owner tasks: confirm identity/contact and licence/privacy terms, upload the reviewed ZIP
 as FREE, retain all limitations, and complete platform review. No publication performed.
+
+Publication gate remains **UNVERIFIED**: the package licence still says DRAFT, the local
+privacy draft has unresolved identity/contact/date fields, and no creator session is
+authorized. After owner edits, rebuild the archive and recheck its hash/content before
+upload. Technical package PASS does not satisfy these decisions.

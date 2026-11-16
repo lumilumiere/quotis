@@ -248,3 +248,147 @@ release-blocking source defect or deadlock established.** Native execution of th
 move/close path is still a separate gate. Earlier installer/platform/provider certification
 limits and the limited nonblocking source concerns remain. No reviewer-owned background
 work remains.
+
+## Settings badge challenge: 5df6cb03d081722d8157f9a1979649d2fb0a52d1
+
+Reviewed the exact `2938e21459d3fdca0711c7e7f456cbdb9320318d..5df6cb03` production/test
+diff, plus actual snapshot status construction and shell get_usage/publication paths.
+Independently ran the isolated JavaScript suite: all 22 tests passed. The four new tests
+only exercise the pure badge function, so their PASS does not close these two findings:
+
+| ID | Severity / acceptance result | Evidence and independent reproduction |
+|---|---|---|
+| B01 | Medium / FAIL latest-current-reading criterion | **An older event can override a newer initialization snapshot and hide its error.** `src/settings.js:131` remembers any received event; initialization then uses `receivedUsage ??= usage` at `:135`, preserving that event regardless of when get_usage actually captured its snapshot. Executed the actual settings.js body with injected fixture APIs/minimal DOM: listen immediately delivers a valid Connected reading at generated_at=1000 before subscription registration resolves; the later get_usage returns Error/Unavailable at generated_at=1001. Final badge is Connected, not Issue. The same result occurs when both snapshots share second 1000, so timestamp tie-breaking cannot establish capture order. A concrete backend interleaving permits this: the earlier emit has sent A and holds PUBLISH during cache I/O, a job commits error B under App, and get_usage captures B without PUBLISH while B's own emit waits for the earlier cache write. Until that write completes, the stale badge persists. Preserve capture order with explicit revision/ordering evidence; also retain a newer event over an older RPC result. |
+| B02 | Medium / FAIL discovery-versus-collection criterion | **A real discovery-only snapshot is still called Connected.** `src/connection.js:4` trusts status=connected. The actual core emits that status solely from st.detected when it has no metrics, notes or error (`crates/quotis-core/src/engine.rs:462`). Independent public-core probe ran only probe_now, no collection jobs: `status=Connected, observed_at=None, metrics=0, notes=0, error=None, refreshing=false`. Passing that real shape to connectionBadge returns Connected/ok. The new discovery-only test supplies null instead of this actual snapshot shape. Require evidence of successful collection, while allowing legitimate successful notes-only/unlimited results; otherwise report discovery/checking separately. |
+
+The injected actual-settings fixture also shows that independent inputs can disagree:
+get_settings says disabled, the provider list says enabled, and the usage reading says
+disabled; the rendered badge is Checking. The helper's disabled-priority unit assertion
+only proves the case where its provider-list input is already current. This composite
+fixture establishes the consumer's assumption, not an independently observed native
+configuration race. Badge authority should come from a coherent committed configuration
+capture. Using mutable form cfg alone needs care: read() changes that draft before a save
+can fail, so a failed disable must not become an authoritative Off indication.
+
+Reproductions are preserved outside the repository at
+`C:/Users/User 1/AppData/Local/Temp/quotis-badge-challenge-e072a439-8aca-4039-9e95-565953b0c98c/`.
+`badge.mjs` reads the actual settings.js source, removes import declarations, and injects
+its dependencies into an AsyncFunction; it does not replace the production initialization
+logic. `discovery.rs`/`discovery.exe` exercise the actual public Engine with a synthetic
+provider. All execution used the fixture wrapper; no account/credential source, real GUI
+input, provider request or Claude was used.
+
+The diff adds fixed badge strings and uses textContent/className for their sinks. Existing
+provider names/path text still use textContent or ordinary title attributes. No HTML parsing
+sink or new direct credential access was introduced by these JavaScript changes.
+
+**Decision for this exact badge candidate: FAIL the two named acceptance criteria.**
+The coordinator's native 18-check claims were not accepted as independent closure of
+initialization interleavings or discovery provenance. Native execution and subsequent
+repairs require their own identified recheck.
+
+## Badge repair recheck: 1a0dc36a1662ee78f567ad9d45d5781b2e920c73
+
+Reviewed the exact repair commit, including the direct serde dependency used by the
+shell-only flattened UiUsage wrapper. Independently ran the 11 targeted badge/actual
+Settings-entry tests and the Rust same-second capture/serialization test through the
+fixture wrapper: PASS. Additional direct controls preserved the current error under
+several old/new/duplicate capture orders and verified disabled priority, a zero timestamp,
+and discovery-only Checking.
+
+| Finding | Disposition |
+|---|---|
+| B01 | **VERIFIED FIXED.** App::usage assigns the revision and captures its snapshot together under App (`src-tauri/src/main.rs:68`). Both emit and get_usage use it; get_usage still acquires no PUBLISH/cache-I/O lock. Both Settings and overlay preserve the highest revision for event and initial RPC data. The actual Settings-entry tests cover both directions within the same timestamp second, delayed old events, and later successful recovery. |
+| B02 | **VERIFIED FIXED for discovery-only state.** `src/connection.js:4` requires observed_at for Connected. The actual empty discovery-only snapshot now yields Checking; successful notes-only readings remain Connected. Error precedence and disabled-provider precedence still pass their direct tests. |
+
+No new lock cycle was found: capture/revision is memory-only under App; emit retains
+PUBLISH -> App capture, releases App before delivery/cache I/O; get_usage only takes App.
+Only UiUsage carries the revision, and cache writes still receive the core Snapshot.
+The serialization test verifies that removing revision from the desktop payload produces
+exactly the core snapshot value. No secret access, account action, native input, or unsafe
+provider text sink was introduced by the repair.
+
+**B03, Medium: unrevisioned save replies can still overwrite current enablement.**
+This is a separate, executable concurrent-save case, rather than the previously discussed
+unproven startup combination. `src/settings.js:108` permits overlapping async change
+handlers; each unconditionally calls showStatus on its save response, replacing providers
+with that response's unrevisioned list. Correctly ordered backend publications and usage
+revisions do not order the corresponding command responses after the save lock is released.
+
+Executed the actual Settings entry with injected IPC and DOM, captured its registered
+change handler, and ran two overlapping saves. Publications arrived in correct A/B order;
+only delivery of A's command response was delayed:
+
+- A enabled / B disabled: latest B response rendered Off; delayed A response changed it
+  to Checking while the form remained disabled and latest usage revision remained Disabled.
+- A disabled / B enabled: latest B response rendered Connected; delayed A response changed
+  it to Off while the form remained enabled and latest usage revision remained Connected.
+
+This can persist until another provider-status response/window initialization; newer usage
+messages alone still consult the overwritten list. The frontend behavior is executed;
+the delayed native transport/worker scheduling is a source-permitted interleaving, not
+a reproduced native response race. The backend save coordinator orders commits and
+publications but does not supply a revision on returned ProviderStatus lists. Keep coherent
+committed enablement with the ordered usage capture, order the status replies, or serialize
+frontend saves. Mutable form cfg is insufficient because a failed save must not change
+the committed badge state.
+
+The standalone actual-entry reproductions are `concurrent_saves.mjs` and
+`concurrent_saves_inverse.mjs` in the recorded badge-challenge temporary folder. They read
+production settings.js and inject dependencies without editing production code.
+
+**Decision for 1a0dc36: original B01/B02 repaired; disabled/current-configuration acceptance
+still FAIL for B03's delayed concurrent-save reply.** This decision does not rely on the
+coordinator's broader suite totals or native distribution checks. No reviewer-owned
+background work remains.
+
+## Save-order recheck: 1ee544ed3d46ecaeb5c0ca4d30bb604cff0b3e65
+
+Inspected the exact `1a0dc36..1ee544ed` Settings-entry/test diff. The change captures a
+structuredClone of each requested form state and queues the complete invoke/response/status
+operation. Independently ran all 13 targeted connection/actual-Settings tests through the
+fixture wrapper: PASS. No Rust production code changed in this repair.
+
+An additional independent actual-entry fixture, `queued_recheck.mjs` in the recorded
+badge-challenge temporary directory, exercises both original directions and more failure
+positions:
+
+- Rapid enabled -> disabled requests: the second invoke is not issued until the first
+  response has been consumed; final current badge is Off.
+- Rapid disabled -> enabled requests: immutable first and second request values remain
+  distinct, and final current badge is Connected. The former delayed-old-response
+  interleaving cannot arise from two outstanding invokes in this queue.
+- Failed first disable: the badge stays Connected from committed state and the queued
+  next request still executes successfully.
+- Successful disable followed by failed enable: the badge remains Off, the failure is
+  reported, and a third enable request executes and produces Connected. A rejected
+  operation does not poison later queue operations.
+
+**B03: VERIFIED FIXED within one active Settings context.** The immutable capture avoids
+later form edits changing an earlier queued request. Sequential response consumption avoids
+stale ProviderStatus replies overwriting current enablement; the failure catch leaves
+committed badge authority unchanged and allows subsequent work. B01/B02 repairs remain
+covered by the passing targeted tests. No new unsafe text sink or account access was added.
+
+**Lifecycle limitation, not a tested guarantee:** close and Escape still immediately close
+the Settings window. The new queue may contain requests not yet sent to Rust, so destroying
+that WebView during a slow earlier save can discard later queued form changes. No native
+close-during-queue experiment was performed by this reviewer. This scoped recheck does not
+certify queue draining on Settings close or whole-app quit, nor coherent state across a
+destroyed/recreated Settings context with an older backend request still pending.
+
+**Scoped source judgement for 1ee544ed: PASS for B01-B03's reviewed badge/capture/concurrent
+response mechanisms; no additional release-blocking correctness defect established in
+this repair.** Native integration and distribution/provider/platform certification remain
+separate evidence. No reviewer-owned background work remains.
+
+### Coordinator follow-up after this scoped recheck
+
+`4718a9b545379d1dfd2799db2d56323bb1d354aa` subsequently awaits the pending save queue
+on explicit Settings Close/Escape. Two actual-entry regressions first failed at1ee544e
+(window closed before pending save completed), then passed. Final complete JS suite33
+passes; final-source CI has six successful jobs. This additional close callback repair
+was verified by the coordinator, not independently by this review context. Native normal
+close remains checked; forced WebView/app termination, whole-app quit during queued drafts
+and slow-I/O cross-context lifecycle are still UNVERIFIED. No queue-drain guarantee for
+those paths is inferred from the explicit-control fix.

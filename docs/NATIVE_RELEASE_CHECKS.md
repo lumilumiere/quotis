@@ -1,9 +1,16 @@
 # Native checks still required
 
-These instructions apply to source/test commit `a99290e`.
+These instructions apply to source/test commit `4718a9b545379d1dfd2799db2d56323bb1d354aa`.
 They are a reproducible test specification, not evidence that native checks passed.
 Use a new OS user/VM, fixture folders and no real provider credentials until authorized.
 Record OS/build, CPU/RAM, webview version, display topology/scales, binary SHA256 and UTC.
+
+[Distribution validation](DISTRIBUTION_VALIDATION.md) records completed Windows process-
+isolated checks. It does not certify installation, visual appearance or real accounts.
+The owner's existing 0.2.1 must remain untouched. Windows Sandbox is enabled here but was
+not started: C: had less than 0.5 GB free, below the published 1 GB minimum. Provision a
+disposable VM with adequate free space instead of reclaiming owner files automatically.
+[Microsoft requirements](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-install).
 
 ## Windows
 
@@ -28,6 +35,37 @@ Record OS/build, CPU/RAM, webview version, display topology/scales, binary SHA25
 7. In a fresh safe VM only, install 0.2.1, seed disabled-provider settings in fake directories,
    upgrade to 2.0 and check migration, position, autostart and provider choices. Keep a VM
    snapshot so failures are reversible. Never use the current machine as the upgrade target.
+
+For the scoped native control checks on a suitable Windows machine, from the repository
+in PowerShell 7 (validated with7.6.9):
+
+```powershell
+./scripts/start-windows-distribution-check.ps1 -SourceCommit 4718a9b545379d1dfd2799db2d56323bb1d354aa
+./scripts/run-windows-native-interaction.ps1
+./scripts/inspect-windows-distribution.ps1 -SourceCommit 4718a9b545379d1dfd2799db2d56323bb1d354aa
+./scripts/extract-windows-msi.ps1
+```
+
+Use binaries freshly built from that source and retain the returned SHA256. The first
+script creates fake sources and a copied executable under target, and refuses an existing
+Quotis autostart entry. Native actions use UI Automation patterns bound to that copy's
+PID/window; no global input fallback. The last command checks the MSI administrative
+action allowlist and extracts payloads; it does **not** install/uninstall or certify upgrades.
+Repeat the control checks with `-Executable <extracted quotis.exe>` on the start script.
+
+Install NSIS and MSI in separate VM snapshots; MSI requests machine-wide installation,
+NSIS uses the current user. Current bundles contain the GUI only. Provision a trusted
+WebView2 runtime in the guest for offline checks: default bootstrapper behavior can need
+network access. A Sandbox config can map only a dedicated artifact-input folder read-only
+and an empty evidence-output folder writable; disable networking for fixture-only runs.
+Do not map the owner's home/credential folders. See
+[Microsoft Sandbox configuration](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file).
+Record stable Windows-version coverage separately from this machine's26300 build.
+
+Settings Close/Escape wait for queued saves. Forced WebView/app termination while changes
+are still unacknowledged is not certified to drain UI drafts; wait for Saved for a persistence
+claim. Exercise slow/failing writes in the disposable VM, including whole-app quit with
+Settings open. Desktop signing/publisher identity remains a separate owner decision.
 
 ## macOS
 

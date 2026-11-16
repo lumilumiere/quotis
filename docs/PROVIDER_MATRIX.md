@@ -7,6 +7,13 @@ access was preserved; no real login, token, usage page or Keychain item was read
 **every adapter is fixture-tested, live-UNVERIFIED**, including carried-over integrations.
 The CLI command run in a sealed fixture environment is not an account comparison.
 
+Final distribution follow-up: native Windows controls collected a synthetic Gemini42-token
+log, qualified unknown records as a lower bound, retained metrics on an exclusive-read
+failure and recovered. Isolated `status --live --offline --json` also left state files
+unchanged. These local checks supply no provider-interface comparison or real-account
+timestamp/reset evidence. No account access was attempted again; all nine rows below
+remain UNVERIFIED. See [distribution evidence](DISTRIBUTION_VALIDATION.md).
+
 | Provider | Live connection | Fixture metrics/source | Reset information | Actual display comparison | Error/limitations |
 |---|---|---|---|---|---|
 | Claude Code | UNVERIFIED | Quota percent/model windows; parsed API fixture | Reported5h/week/model resets | UNVERIFIED | Undocumented endpoint; macOS Keychain UNVERIFIED |

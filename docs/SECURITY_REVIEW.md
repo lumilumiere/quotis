@@ -1,5 +1,32 @@
 # Security review
 
+## Final distribution follow-up (2026-11-16)
+
+Final source `4718a9b`; [native/distribution review](reviews/0006-windows-distribution-validation.md)
+and [separate Codex challenge](reviews/0005-fresh-context-challenge.md) identify truthful
+connection provenance, same-second message ordering and concurrent settings-save repairs.
+Capture revision is desktop IPC metadata only; cache/export schema remains unchanged.
+The getter captures under the in-memory App lock and does not acquire the filesystem
+publication lock. Provider-derived text still uses textContent/text attributes.
+
+Final-source CI has all six jobs PASS, including full-history gitleaks, audit and platform
+tests. Local npm audit reports zero vulnerabilities; cargo audit reports zero vulnerabilities
+and the same two allowed upstream warnings listed below. Scanners and deterministic tests
+are scoped evidence, not comprehensive security certification.
+
+Windows controls ran with synthetic data in copied binaries/isolated profiles; previous
+credential denials were not retried. No authorized real account, Keychain item, global
+input, creator-account mutation or paid service was used. Autostart was excluded and the
+owner's 0.2.1 hash/version/registration remained unchanged. MSI administrative extraction
+is not installation certification. All final Windows artifacts are NotSigned, with hashes
+in WINDOWS_ARTIFACTS_SHA256SUMS.txt. Publisher identity and VM install/upgrade/remove remain
+open. Forced termination during unacknowledged UI drafts is a documented lifecycle limit.
+
+The FREE skill copy now distinguishes cache/offline reads from authorized optional live
+provider requests, stops on permission denial, and discloses GUI-only Windows bundles.
+Its licence/privacy owner fields and marketplace delivery remain unresolved. Public release
+remains FAIL under RELEASE_READINESS_FINAL.md.
+
 ## Release-hardening disposition (2026-11-16)
 
 Historical tables below refer to earlier commits. Current evidence is

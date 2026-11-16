@@ -1,0 +1,231 @@
+{
+  "runs": [
+    {
+      "mode": "island",
+      "startupToSnapshotMs": 738,
+      "fixtureTokens": 42,
+      "checks": [
+        "startup",
+        "fixture snapshot",
+        "normal shutdown and persistence"
+      ],
+      "idle": {
+        "cpuOneCorePercent": 0.46599063413004577,
+        "seconds": 60.3552903,
+        "privateMB": 144.21484375,
+        "workingSetMB": 341.73046875,
+        "cpuSeconds": 0.28125,
+        "processes": [
+          {
+            "Id": 3012,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.25,
+            "PrivateMemorySize64": 26398720,
+            "WorkingSet64": 64942080
+          },
+          {
+            "Id": 4404,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.328125,
+            "PrivateMemorySize64": 62595072,
+            "WorkingSet64": 78602240
+          },
+          {
+            "Id": 4428,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.1875,
+            "PrivateMemorySize64": 11681792,
+            "WorkingSet64": 39862272
+          },
+          {
+            "Id": 15692,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.109375,
+            "PrivateMemorySize64": 7553024,
+            "WorkingSet64": 20361216
+          },
+          {
+            "Id": 20276,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.015625,
+            "PrivateMemorySize64": 3309568,
+            "WorkingSet64": 13602816
+          },
+          {
+            "Id": 26080,
+            "ProcessName": "msedgewebview2",
+            "CPU": 1.109375,
+            "PrivateMemorySize64": 34250752,
+            "WorkingSet64": 113147904
+          },
+          {
+            "Id": 20856,
+            "ProcessName": "quotis",
+            "CPU": 0.125,
+            "PrivateMemorySize64": 5431296,
+            "WorkingSet64": 27811840
+          }
+        ]
+      },
+      "refreshCpuSeconds": 0.0,
+      "failureSample": {
+        "cpuSeconds": 0.0625,
+        "snapshot": {
+          "schema_version": 1,
+          "generated_at": 1794830325,
+          "app_version": "2.0.0",
+          "stale_after_secs": 900,
+          "providers": [
+            {
+              "id": "claude",
+              "name": "Claude Code",
+              "vendor": "Anthropic",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "codex",
+              "name": "Codex",
+              "vendor": "OpenAI",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "copilot",
+              "name": "GitHub Copilot",
+              "vendor": "GitHub",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "cursor",
+              "name": "Cursor",
+              "vendor": "Anysphere",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "gemini",
+              "name": "Gemini CLI",
+              "vendor": "Google",
+              "status": "connected",
+              "error": {
+                "kind": "unavailable",
+                "message": "can't read local data"
+              },
+              "observed_at": 1794830321,
+              "refreshing": false,
+              "metrics": [
+                {
+                  "id": "tokens_5h",
+                  "label": "5h",
+                  "category": "local_usage",
+                  "unit": "tokens",
+                  "window_seconds": 18000,
+                  "used": 84.0,
+                  "observed_at": 1794830321,
+                  "source": "local_log",
+                  "freshness": "fresh"
+                },
+                {
+                  "id": "tokens_24h",
+                  "label": "24h",
+                  "category": "local_usage",
+                  "unit": "tokens",
+                  "window_seconds": 86400,
+                  "used": 84.0,
+                  "observed_at": 1794830321,
+                  "source": "local_log",
+                  "freshness": "fresh"
+                }
+              ],
+              "notes": []
+            },
+            {
+              "id": "qwen",
+              "name": "Qwen Code",
+              "vendor": "Alibaba",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "opencode",
+              "name": "opencode",
+              "vendor": "opencode",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "openrouter",
+              "name": "OpenRouter",
+              "vendor": "OpenRouter",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "deepseek",
+              "name": "DeepSeek",
+              "vendor": "DeepSeek",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            }
+          ]
+        },
+        "privateMB": 144.27734375
+      },
+      "exitCode": 0,
+      "position": [
+        130,
+        110
+      ]
+    },
+    {
+      "mode": "notch",
+      "startupToSnapshotMs": 426,
+      "fixtureTokens": 42,
+      "checks": [
+        "startup",
+        "fixture snapshot",
+        "normal shutdown and persistence"
+      ],
+      "exitCode": 0,
+      "position": null
+    },
+    {
+      "mode": "panel",
+      "startupToSnapshotMs": 419,
+      "fixtureTokens": 42,
+      "checks": [
+        "startup",
+        "fixture snapshot",
+        "normal shutdown and persistence"
+      ],
+      "exitCode": 0,
+      "position": [
+        220,
+        110
+      ]
+    }
+  ],
+  "artifactRoot": "<isolated repository fixture root>/runtime-evidence",
+  "executable": "target/release/quotis.exe",
+  "timestamp": "2026-11-16T11:59:06.433829Z",
+  "sha256": "F050BD9CF94AAB83DC75DCD5B0EE12077D7119EF1D85DCE4BBF9960EF2E59BAE",
+  "source": "4718a9b545379d1dfd2799db2d56323bb1d354aa"
+}
