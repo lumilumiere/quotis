@@ -85,6 +85,7 @@ struct State {
     refreshing: bool,
     last_poll: Option<Instant>,
     backoff: u64,
+    backoff_started: Option<Instant>,
     fails: u32,
     /// Local activity was seen since the last online poll.
     dirty: bool,
@@ -210,7 +211,7 @@ impl Engine {
 
     /// May another online job be issued for this provider right now?
     fn free(st: &State) -> bool {
-        !Self::in_flight(st) && st.outstanding.len() < MAX_OUTSTANDING as usize
+        !Self::in_flight(st) && st.outstanding.len() < MAX_OUTSTANDING as usize && st.backoff_started.is_none_or(|t| t.elapsed().as_secs() >= st.backoff)
     }
 
     /// Writes off online jobs that have not reported back within their lease, and says so.
@@ -221,6 +222,9 @@ impl Engine {
             st.fails = st.fails.saturating_add(1);
             st.backoff = st.backoff.max(base);
             st.online_error = Some(ProviderError::new(ErrorKind::Unavailable, "a check did not finish"));
+        }
+        for st in self.states.values_mut().filter(|st| st.enabled && !st.refreshing && st.outstanding.len() >= MAX_OUTSTANDING as usize) {
+            st.online_error.get_or_insert_with(|| ProviderError::new(ErrorKind::Unavailable, "previous online checks have not finished; worker limit reached"));
         }
     }
 
@@ -239,6 +243,11 @@ impl Engine {
             .iter()
             .filter_map(|p| {
                 if self.states[p.info().id].local_outstanding.len() >= MAX_OUTSTANDING as usize {
+                    self.states
+                        .get_mut(p.info().id)
+                        .expect("state")
+                        .local_error
+                        .get_or_insert_with(|| ProviderError::new(ErrorKind::Unavailable, "previous local checks have not finished; worker limit reached"));
                     return None;
                 }
                 let job = self.job(p, Kind::Local);
@@ -402,9 +411,11 @@ impl Engine {
                 st.online_error = None;
                 st.observed_at = Some(now);
                 st.backoff = 0;
+                st.backoff_started = None;
                 st.fails = 0;
             }
             (Kind::Online, Some(Err(e))) => {
+                st.backoff_started = Some(Instant::now());
                 st.fails = st.fails.saturating_add(1);
                 st.backoff = match (e.kind, e.retry_after_secs) {
                     // The server said when to come back: believe it.
@@ -550,6 +561,9 @@ impl Engine {
     pub fn age_last_poll(&mut self, id: &str, ago: Duration) {
         if let Some(st) = self.states.get_mut(id) {
             st.last_poll = Instant::now().checked_sub(ago);
+            if st.backoff_started.is_some() {
+                st.backoff_started = st.last_poll;
+            }
         }
     }
 

@@ -196,6 +196,23 @@ fn status_text_qualifies_expired_and_hides_undetected() {
 }
 
 #[test]
+fn text_status_and_diagnosis_do_not_certify_unknown_telemetry_as_zero() {
+    let dir = temp_dir();
+    let source = dir.join("gemini");
+    std::fs::create_dir_all(source.join("tmp")).unwrap();
+    std::fs::write(source.join("tmp/unknown.jsonl"), "unknown telemetry\n").unwrap();
+    let mut settings = Settings::default();
+    for p in quotis_core::providers::registry() {
+        settings.providers.insert(p.info().id.into(), ProviderCfg { enabled: p.info().id == "gemini", dir: source.display().to_string() });
+    }
+    settings.save(&dir).unwrap();
+    let text = stdout(&cli(&dir, &["status", "--live", "--offline"]));
+    assert!(text.contains("partial") && text.contains("lower bound"), "must disclose incomplete zeros: {text}");
+    let diagnosis = stdout(&cli(&dir, &["diagnose", "--provider", "gemini", "--live", "--offline"]));
+    assert!(diagnosis.contains("partial") && !diagnosis.contains("Connected and reporting."), "must not certify incomplete collection: {diagnosis}");
+}
+
+#[test]
 fn diagnose_explains_and_rejects_unknown_ids() {
     let dir = with_snapshot(5);
     let o = cli(&dir, &["diagnose", "--provider", "cursor", "--json"]);

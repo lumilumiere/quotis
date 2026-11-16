@@ -652,3 +652,31 @@ fn retry_after_is_not_shortened_even_beyond_a_week() {
     assert!(e.refresh_online().is_empty());
     assert!(e.all_online().is_empty(), "one-shot requests also respect the server delay");
 }
+
+#[test]
+fn retry_after_starts_when_the_response_arrives() {
+    let mut e = engine(Fake::new(&FAKE));
+    let job = e.all_online().remove(0);
+    e.age_last_poll("fake", Duration::from_secs(4000));
+    e.finish(&job, Some(Err(ProviderError { retry_after_secs: Some(120), ..err(ErrorKind::RateLimited) })), 0);
+    assert!(e.all_online().is_empty(), "slow request time cannot consume the server's retry delay");
+    assert!(e.refresh_online().is_empty());
+    assert!(e.due_online(0).is_empty());
+    e.age_last_poll("fake", Duration::from_secs(4000));
+    assert_eq!(e.all_online().len(), 1);
+}
+
+#[test]
+fn capped_old_workers_report_unavailable_after_reconfiguration() {
+    let mut e = engine(Fake::new(&FAKE));
+    for i in 0..4 {
+        let mut s = Settings::default();
+        s.providers.insert("fake".into(), ProviderCfg { enabled: true, dir: std::env::temp_dir().join(format!("quotis-cap-error-{i}")).display().to_string() });
+        e.set_settings(s);
+        e.local_jobs();
+        e.all_online();
+    }
+    let p = e.collect_once_with_timeout(true, Duration::from_millis(5)).providers.remove(0);
+    assert_eq!(p.error.as_ref().map(|e| e.kind), Some(ErrorKind::Unavailable), "exhausted workers are not an undetected source");
+    assert_eq!(p.status, Status::Error);
+}

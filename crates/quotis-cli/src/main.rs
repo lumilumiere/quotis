@@ -101,12 +101,14 @@ struct Loaded {
     source: &'static str,
     age: i64,
     stale: bool,
+    statuses: Vec<ProviderStatus>,
 }
 
 fn load(a: &Args, dir: &Path, now: i64) -> Result<Loaded, (i32, &'static str, String)> {
     if a.live {
-        let snap = Engine::new(Settings::load(dir)).collect_once(!a.offline);
-        return Ok(Loaded { snap, source: if a.offline { "live_local_only" } else { "live" }, age: 0, stale: false });
+        let mut engine = Engine::new(Settings::load(dir));
+        let snap = engine.collect_once(!a.offline);
+        return Ok(Loaded { snap, source: if a.offline { "live_local_only" } else { "live" }, age: 0, stale: false, statuses: engine.statuses() });
     }
     match cache::read(dir) {
         Ok(mut snap) => {
@@ -116,7 +118,7 @@ fn load(a: &Args, dir: &Path, now: i64) -> Result<Loaded, (i32, &'static str, St
             let age = now - snap.generated_at;
             // A snapshot dated in the future means the clock changed; its age is unknown.
             let stale = !(-300..=a.max_age).contains(&age);
-            Ok(Loaded { snap, source: "desktop_cache", age: age.max(0), stale })
+            Ok(Loaded { snap, source: "desktop_cache", age: age.max(0), stale, statuses: Engine::new(Settings::load(dir)).statuses() })
         }
         Err(CacheError::Missing) => {
             Err((EXIT_NO_SNAPSHOT, "no_snapshot", "No snapshot found. Start the Quotis desktop app, or pass --live to collect now.".into()))
@@ -185,6 +187,9 @@ fn describe(m: &Metric, now: i64) -> String {
         (Freshness::Stale, _) => s.push_str(" [stale]"),
         _ => {}
     }
+    if let Some(qualification) = &m.qualification {
+        s.push_str(&format!(" [{qualification}]"));
+    }
     s
 }
 
@@ -244,6 +249,9 @@ fn advice(p: &ProviderSnapshot, st: &ProviderStatus) -> String {
         }
         _ if p.metrics.iter().any(|m| m.freshness != Freshness::Fresh) => {
             "Connected, but some numbers are stale or their window has reset since they were read. They refresh on the next successful check.".into()
+        }
+        _ if p.metrics.iter().any(|m| m.qualification.is_some()) => {
+            "Collection is partial or qualified; a reported lower bound is not the complete usage total. Check the metric caveats.".into()
         }
         _ => "Connected and reporting.".into(),
     }
@@ -326,9 +334,9 @@ fn run(argv: &[String], dir: &Path, now: i64) -> (i32, String) {
         "status" => (code, status_text(&l, now)),
         _ => {
             let id = a.provider.as_deref().unwrap_or("");
-            let mut engine = Engine::new(Settings::load(dir));
-            engine.probe_now();
-            let statuses = engine.statuses();
+            // Reuse the bounded collection's detection. A second synchronous probe here
+            // would bypass the live deadline and make cached diagnosis read logins.
+            let statuses = &l.statuses;
             let (Some(p), Some(st)) = (l.snap.providers.iter().find(|p| p.id == id), statuses.iter().find(|s| s.info.id == id)) else {
                 let known: Vec<_> = statuses.iter().map(|s| s.info.id).collect();
                 return fail(EXIT_UNKNOWN_PROVIDER, "unknown_provider", format!("unknown provider. Known providers: {}", known.join(", ")), a.json);
@@ -338,7 +346,8 @@ fn run(argv: &[String], dir: &Path, now: i64) -> (i32, String) {
                 let data = json!({
                     "provider": p,
                     "looked_in": st.path,
-                    "found_locally": st.found,
+                    "found_locally": a.live.then_some(st.found),
+                    "detection_source": if a.live { "live_collection" } else { "not_checked_cache_only" },
                     "enabled": st.enabled,
                     "contacts": st.info.endpoint,
                     "endpoint_documented": st.info.documented,
@@ -349,7 +358,17 @@ fn run(argv: &[String], dir: &Path, now: i64) -> (i32, String) {
             }
             let mut out = format!("{} ({}): {}\n", p.name, p.id, status_word(p));
             if !st.path.is_empty() {
-                out.push_str(&format!("  looked in: {} ({})\n", st.path, if st.found { "found" } else { "not found" }));
+                out.push_str(&format!(
+                    "  looked in: {} ({})\n",
+                    st.path,
+                    if !a.live {
+                        "not checked; cached diagnosis"
+                    } else if st.found {
+                        "found"
+                    } else {
+                        "not found"
+                    }
+                ));
             }
             out.push_str(&format!("  contacts:  {}\n", st.info.endpoint.unwrap_or("nothing (local files only)")));
             for m in &p.metrics {

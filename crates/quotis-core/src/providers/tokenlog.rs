@@ -20,6 +20,8 @@ const MAX_FILES: usize = 2000;
 /// Upper bound on token records kept per file. Beyond it the oldest are dropped and the
 /// totals are marked partial.
 const MAX_ENTRIES: usize = 100_000;
+/// Aggregate retention across all files: at most 3.2 MB of timestamp/count pairs.
+const MAX_TOTAL_ENTRIES: usize = 200_000;
 
 #[derive(Default)]
 struct FileState {
@@ -133,6 +135,7 @@ impl Provider for TokenLog {
         let recent: Vec<PathBuf> = listing.files.into_iter().filter(|(_, m)| *m > cutoff).map(|(p, _)| p).collect();
         files.retain(|p, _| recent.contains(p));
         let mut failed = None;
+        let mut remaining = MAX_TOTAL_ENTRIES;
         for p in recent {
             let st = files.entry(p.clone()).or_default();
             match read_new_lines(&p, &mut st.checkpoint) {
@@ -156,10 +159,13 @@ impl Provider for TokenLog {
             }
             // Records outside the last day, in either direction, are of no further use.
             st.entries.retain(|(ts, _)| (-FUTURE_SKEW..DAY).contains(&(now - ts)));
-            if st.entries.len() > MAX_ENTRIES {
-                st.entries.drain(..st.entries.len() - MAX_ENTRIES);
+            let limit = MAX_ENTRIES.min(remaining);
+            if st.entries.len() > limit {
+                st.entries.drain(..st.entries.len() - limit);
+                st.entries.shrink_to_fit();
                 st.partial_until = now + DAY;
             }
+            remaining -= st.entries.len();
         }
         // A log that could not be read means the total is wrong, not smaller.
         if let Some(e) = failed {
@@ -186,7 +192,9 @@ fn unknown_usage_line(line: &str) -> bool {
     }
     // Known non-usage records are harmless. Anything else could be a changed usage
     // schema: keep the total qualified rather than certifying zero activity.
-    !matches!(v.get("type").and_then(Value::as_str), Some("user" | "system" | "info" | "error" | "tool"))
+    let known_type = matches!(v.get("type").and_then(Value::as_str), Some("user" | "system" | "info" | "error" | "tool"));
+    let known_fields = v.as_object().is_some_and(|obj| obj.keys().all(|k| matches!(k.as_str(), "type" | "timestamp" | "content" | "message" | "id")));
+    !(known_type && known_fields)
 }
 
 #[cfg(test)]
@@ -319,7 +327,12 @@ mod tests {
 
     #[test]
     fn unknown_nonempty_log_is_not_an_unqualified_zero() {
-        for text in ["not json\n", "{\"usage\":{\"total_tokens\":900}}\n", "{\"type\":\"model\",\"tokenCount\":900}\n"] {
+        for text in [
+            "not json\n",
+            "{\"usage\":{\"total_tokens\":900}}\n",
+            "{\"type\":\"model\",\"tokenCount\":900}\n",
+            "{\"type\":\"info\",\"usage\":{\"total_tokens\":900}}\n",
+        ] {
             let dir = crate::fsx::temp_dir("tokenlog-unknown");
             std::fs::create_dir_all(dir.join("tmp")).unwrap();
             std::fs::write(dir.join("tmp/s.jsonl"), text).unwrap();
@@ -329,5 +342,23 @@ mod tests {
                 assert!(c.metrics.iter().all(|m| m.qualification.is_some()), "unknown input cannot certify zero: {text}");
             }
         }
+    }
+
+    #[test]
+    fn retention_is_bounded_across_all_files_not_only_each_file() {
+        let dir = crate::fsx::temp_dir("tokenlog-total-budget");
+        std::fs::create_dir_all(dir.join("tmp")).unwrap();
+        let p = TokenLog::gemini();
+        let now = parse_ts("2026-09-22T10:00:00Z").unwrap();
+        for i in 0..3 {
+            let file = dir.join(format!("tmp/{i}.jsonl"));
+            std::fs::write(&file, "").unwrap();
+            p.files.lock().unwrap().1.insert(file, FileState { entries: vec![(now, 1); 100_000], ..Default::default() });
+        }
+        p.files.lock().unwrap().0 = dir.clone();
+        let c = p.collect_local(&dir, now).unwrap().unwrap();
+        let retained: usize = p.files.lock().unwrap().1.values().map(|f| f.entries.len()).sum();
+        assert!(retained <= 200_000, "aggregate records, not just each file, need a cap: {retained}");
+        assert!(c.metrics.iter().all(|m| m.qualification.is_some()));
     }
 }
