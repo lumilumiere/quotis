@@ -49,12 +49,25 @@ struct App {
     engine: Engine,
     /// Logical size the UI asked for; what the window currently shows.
     size: (f64, f64),
-    /// When the app last moved the window itself, to tell its own moves from a user drag.
-    placed_at: Instant,
+    /// Destination of the app's latest placement, to distinguish it from user movement.
+    placed_position: Option<(i32, i32)>,
     position_dirty: bool,
 }
 
 type Shared = Arc<Mutex<App>>;
+
+impl App {
+    fn remember_move(&mut self, position: (i32, i32), width: i32) {
+        if self.placed_position == Some(position) {
+            return;
+        }
+        self.placed_position = None;
+        if self.engine.settings().mode != "notch" {
+            self.engine.set_position(Some((position.0 + width / 2, position.1)));
+            self.position_dirty = true;
+        }
+    }
+}
 
 struct Watch {
     watcher: RecommendedWatcher,
@@ -219,7 +232,7 @@ fn layout(app: &AppHandle) {
     let current = (w.outer_position().ok(), w.outer_size().ok());
     let wanted = (Some(PhysicalPosition::new(r.x, r.y)), Some(PhysicalSize::new(r.w as u32, r.h as u32)));
     if current != wanted {
-        with(app, |a| a.placed_at = Instant::now());
+        with(app, |a| a.placed_position = Some((r.x, r.y)));
         let _ = w.set_position(PhysicalPosition::new(r.x, r.y));
         let _ = w.set_size(PhysicalSize::new(r.w as u32, r.h as u32));
     }
@@ -230,13 +243,13 @@ fn layout(app: &AppHandle) {
 
 /// Remembers where the user dragged the island (its top-centre), so it returns there.
 fn on_moved(app: &AppHandle, w: &tauri::Window, pos: PhysicalPosition<i32>) {
+    // Older queued move events must not replace the position the window now occupies.
+    if w.outer_position().is_ok_and(|current| current != pos) {
+        return;
+    }
     let width = w.outer_size().map_or(0, |s| s.width as i32);
     with(app, |a| {
-        let by_user = a.placed_at.elapsed() > Duration::from_millis(400);
-        if by_user && a.engine.settings().mode != "notch" {
-            a.engine.set_position(Some((pos.x + width / 2, pos.y)));
-            a.position_dirty = true;
-        }
+        a.remember_move((pos.x, pos.y), width);
     });
 }
 
@@ -409,7 +422,7 @@ fn main() {
                 let _ = tx.try_send(event);
             })?;
             app.manage(Mutex::new(Watch { watcher, watched: Vec::new() }));
-            app.manage(Arc::new(Mutex::new(App { engine: Engine::new(settings), size: (200.0, 32.0), placed_at: Instant::now(), position_dirty: false })));
+            app.manage(Arc::new(Mutex::new(App { engine: Engine::new(settings), size: (200.0, 32.0), placed_position: None, position_dirty: false })));
             let (config_tx, config_rx) = mpsc::sync_channel(1);
             app.manage(ConfigurationWork(config_tx));
             let config_handle = handle.clone();

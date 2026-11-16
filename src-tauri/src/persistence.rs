@@ -41,7 +41,7 @@ mod tests {
     use crate::App;
     use quotis_core::Engine;
     use std::sync::{mpsc, Arc, Mutex};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     fn fixture() -> (Shared, std::path::PathBuf) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -52,7 +52,7 @@ mod tests {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let app = App { engine: Engine::with_providers(Settings::default(), vec![]), size: (200.0, 32.0), placed_at: Instant::now(), position_dirty: false };
+        let app = App { engine: Engine::with_providers(Settings::default(), vec![]), size: (200.0, 32.0), placed_position: None, position_dirty: false };
         (Arc::new(Mutex::new(app)), dir)
     }
 
@@ -63,6 +63,28 @@ mod tests {
         let result = save(&app, &dir, settings, |_, _| Err(std::io::Error::other("disk failure")), |_| panic!("must not publish failed settings"));
         assert!(result.is_err());
         assert_eq!(unpoisoned(&app).engine.settings(), &Settings::default());
+    }
+
+    #[test]
+    fn movement_immediately_after_placement_is_recorded_before_exit() {
+        let (app, dir) = fixture();
+        unpoisoned(&app).remember_move((70, 110), 200);
+        assert_eq!(unpoisoned(&app).engine.settings().position, Some((170, 110)), "a real move is not discarded by a timing grace period");
+        flush_position(&app, &dir).unwrap();
+        assert_eq!(Settings::load(&dir).position, Some((170, 110)));
+    }
+
+    #[test]
+    fn placement_events_are_ignored_and_a_user_can_drag_back_to_that_location() {
+        let (app, _) = fixture();
+        let mut app = unpoisoned(&app);
+        app.placed_position = Some((70, 110));
+        app.remember_move((70, 110), 200);
+        assert!(!app.position_dirty);
+        app.remember_move((80, 120), 200);
+        assert_eq!(app.engine.settings().position, Some((180, 120)));
+        app.remember_move((70, 110), 200);
+        assert_eq!(app.engine.settings().position, Some((170, 110)));
     }
 
     #[test]
