@@ -22,18 +22,23 @@ Exactly what Quotis reads, keeps, sends and writes. Everything here can be check
 | OpenRouter (opt-in) | Environment variable `OPENROUTER_API_KEY` | Credit usage, key limit | The key, to `openrouter.ai` only |
 | DeepSeek (opt-in) | Environment variable `DEEPSEEK_API_KEY` | Balance | The key, to `api.deepseek.com` only |
 
-A provider that is turned off is not read at all: no files, no login, no request.
+Disabled providers receive no new jobs or discovery. Work issued before disable can finish
+or remain blocked at an OS boundary; changed-generation results are ignored.
 
 ## Prompts and replies
 
-Log readers skip any line that does not contain the usage field they look for. A line that does contain it is parsed as JSON in memory, the numbers are copied out, and the rest is dropped. If a tool writes prompt text on the same line as its token counts, that text passes through memory briefly. It is never stored, logged, shown or sent.
+Bounded log text is parsed in memory to extract usage and detect unknown formats. Prompt
+text on these lines can pass through memory briefly. Only numeric records and coverage
+state are retained; prompt content is not persisted or transmitted by the collectors.
 
 ## What is written
 
 | File | Location | Contents |
 |---|---|---|
 | `settings.json` | Per-user app config folder | Your Quotis settings. No credentials. |
-| `snapshot.json` | Same folder | The current normalized usage snapshot: provider names, status, numbers, reset times, plan names, error messages. No tokens, no file paths, no prompts. Readable by your user account only. |
+| `settings.json.bak` | Same folder | Replica prepared during save. |
+| `settings.committed.json` | Same folder | Authoritative completed settings generation. Prepared replicas cannot commit a failed save. |
+| `snapshot.json` | Same folder | Normalized usage/status/reset/plan/error data. No credentials, paths or prompts. New Unix files use 0600; Windows inherits the directory ACLs. |
 
 The folder is `%APPDATA%\io.github.lumilumiere.quotis` on Windows, `~/Library/Application Support/io.github.lumilumiere.quotis` on macOS, and `$XDG_CONFIG_HOME/io.github.lumilumiere.quotis` on Linux.
 

@@ -1,5 +1,44 @@
 # Security review
 
+## Release-hardening disposition (2026-11-16)
+
+Historical tables below refer to earlier commits. Current evidence is
+[0005](reviews/0005-codex-release-hardening.md) and the
+[fresh-context challenge/rechecks](reviews/0005-fresh-context-challenge.md).
+Maintained regressions reproduced backup/main failure, unsafe corrupt defaults, duplicate
+slot release, local worker growth, lost error provenance, malformed zeros, replacement and
+listing failures, and retry/deadline gaps. They were repaired and rerun.
+
+`settings.committed.json` selects completed saves; prepared replicas cannot select a failed
+generation even when rollback fails. Corrupt authoritative settings disable all providers
+and report recovery failure. Atomic replacement/file sync does not promise transactional
+power-loss durability on every filesystem. Downgrade to a version ignoring the record
+requires explicit settings migration.
+
+Sequence sets bound online/local work across generations and consume completion once.
+Arbitrary stuck OS calls are **not cancelled**; caps report Unavailable. Live collection
+waits at most 60 seconds for collectors, excluding settings reads, output writes and explicit
+`providers` discovery. That command rejects `--live` rather than ignoring its semantics.
+
+Local/online errors survive independently. Unknown formats and listing failures qualify
+counts across passes. CLI and overlay disclose lower bounds. File identity plus head and
+boundary samples detect normal replacement/common rewrites; an in-place edit outside those
+samples with preserved metadata can still evade detection.
+
+Local npm/cargo audits report zero vulnerabilities, with warnings for glib's unsound
+iterator and unmaintained proc-macro-error. CI runs full-history gitleaks. Previously denied
+scanner download and real-credential access were not retried. Provider strings use
+textContent; CSP and IPC boundaries remain restricted. Custom native commands are still an
+application permission surface. Windows files inherit directory ACLs; new Unix files use
+0600. Cache shape/schema validation is not cryptographic authenticity. Scanners passing
+are not comprehensive security proof.
+
+macOS Keychain/prompt/denial and real provider agreement remain UNVERIFIED. No credentials,
+prompts or real provider traffic were used. Public release remains FAIL under the separate
+gates in RELEASE_READINESS_FINAL.md.
+
+---
+
 Status of every security-relevant finding from the two independent Codex reviews, with the fix and the test that guards it. The reviews themselves are in [reviews/](reviews/).
 
 | Review | Commit reviewed | Findings | Critical / High |

@@ -1,5 +1,37 @@
 # Provider matrix
 
+## Release-hardening verification record, 2026-11-16
+
+No authorized real test accounts were supplied. The previous session's denied credential
+access was preserved; no real login, token, usage page or Keychain item was read. Thus
+**every adapter is fixture-tested, live-UNVERIFIED**, including carried-over integrations.
+The CLI command run in a sealed fixture environment is not an account comparison.
+
+| Provider | Live connection | Fixture metrics/source | Reset information | Actual display comparison | Error/limitations |
+|---|---|---|---|---|---|
+| Claude Code | UNVERIFIED | Quota percent/model windows; parsed API fixture | Reported5h/week/model resets | UNVERIFIED | Undocumented endpoint; macOS Keychain UNVERIFIED |
+| Codex | UNVERIFIED | Primary/secondary quota, API/local-log fixtures | Length/reset from data | UNVERIFIED | Undocumented endpoint; no API-key plan quota |
+| Copilot | UNVERIFIED | Premium-request quota API fixture | Reported cycle end | UNVERIFIED | github.com only; at most3 distinct auth attempts |
+| Cursor | UNVERIFIED | Plan allowance API/read-only SQLite fixtures | Reported cycle end | UNVERIFIED | Undocumented endpoint; no inferred overage |
+| Gemini CLI | UNVERIFIED | Local-log5h/24h token fixtures | No allowance/reset | UNVERIFIED | Unknown/malformed input qualifies lower bound; caps also qualify |
+| Qwen Code | UNVERIFIED | Local-log5h/24h token fixtures | No allowance/reset | UNVERIFIED | Same coverage limits as Gemini |
+| opencode | UNVERIFIED | Local-db tokens/cost estimate fixtures | No allowance/reset | UNVERIFIED | Schema/read failures are errors; cost is not a bill |
+| OpenRouter | UNVERIFIED | Consumption/key-limit API fixture | Only reported budget reset | UNVERIFIED | Opt-in; no key/account access authorized |
+| DeepSeek | UNVERIFIED | Currency balances API fixture | None | UNVERIFIED | Opt-in; no key/account access authorized |
+
+Fixture/error evidence includes API shape validation, loopback HTTP errors/Retry-After,
+expired synthetic logins, stale/reset display, future observations, malformed records,
+listing errors, persistence and bounded workers. This is parser/state evidence, not a
+current provider contract guarantee. Never advertise unsupported services as working.
+
+Owner comparison procedure: explicitly authorize one provider/account at a time; run
+`quotis-cli status --live --json` using only those enabled providers; record UTC timestamp,
+connection/error, exact metric source/window/reset/observed_at/qualification and provider
+screen reading at the same time. Compare rounding and timestamps, record disagreement,
+and redact account/plan data if sensitive. Stop on permission denial; never paste tokens.
+
+---
+
 What Quotis 2.0 reports for each provider, where the number comes from, and how far it has been verified. Accuracy comes before provider count: anything that could not be integrated reliably is listed as not supported.
 
 ## Verification levels
@@ -30,7 +62,8 @@ No provider was exercised against a live account during 2.0 development. Before 
 - **Codex:** with an API-key login only the local logs are used, and they show the limits as of the last Codex message. If the data carries no window length the metric is labelled "primary" / "secondary" rather than guessing "5h" / "weekly".
 - **Copilot:** only github.com logins are used. GitHub Enterprise Server is not supported. Unlimited plans show a note, not a bar.
 - **Cursor:** plans with no included usage show a note.
-- **Gemini CLI, Qwen Code:** no quota exists in the local files, so none is shown and none is inferred. A log-format change would read as zero usage.
+- **Gemini CLI, Qwen Code:** local counts do not imply an allowance. Unknown log formats
+  and incomplete coverage are disclosed as partial lower bounds, including zero counts.
 - **opencode:** the cost is opencode's own estimate from model prices.
 - **OpenRouter:** a key with no limit shows usage only; no allowance is invented.
 

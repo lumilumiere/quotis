@@ -26,12 +26,12 @@ Quotis is one monitoring engine with two thin shells: a desktop overlay and a re
 |---|---|
 | `crates/quotis-core/src/model.rs` | The usage contract: `Snapshot`, `ProviderSnapshot`, `Metric`, categories, freshness. `SCHEMA_VERSION = 1`. |
 | `crates/quotis-core/src/providers/` | One file per adapter. `mod.rs` holds the `Provider` trait and `registry()`. |
-| `crates/quotis-core/src/engine.rs` | Per-provider state, scheduling, backoff, merging, snapshot building. No I/O, no threads. |
+| `crates/quotis-core/src/engine.rs` | Pure scheduler/state operations, plus explicit bounded one-shot worker supervision. |
 | `crates/quotis-core/src/time.rs` | Offset-aware timestamp parsing. |
 | `crates/quotis-core/src/fsx.rs` | Bounded file access: capped walks that skip links, incremental and tail reads. |
 | `crates/quotis-core/src/net.rs` | The only network code: one bounded JSON GET. |
 | `crates/quotis-core/src/cache.rs` | Atomic write and validated read of `snapshot.json`. |
-| `crates/quotis-core/src/settings.rs` | `settings.json`, migration from 0.x, path resolution. |
+| `crates/quotis-core/src/settings.rs` | Migration/path resolution, settings replicas and authoritative atomic `settings.committed.json`. |
 | `crates/quotis-core/src/layout.rs` | Window placement geometry, pure and tested. |
 | `crates/quotis-cli/` | `quotis-cli` binary. |
 | `src-tauri/src/main.rs` | Desktop shell: timers, watcher, commands, window handling. Knows no provider by name. |
@@ -52,6 +52,18 @@ Quotis is one monitoring engine with two thin shells: a desktop overlay and a re
 - Local sources: on a debounced file-system event for that provider's folder, and every 5 minutes so rolling windows keep moving.
 - Online sources: every `refresh_min` minutes (default 5) plus up to 10% per-process jitter. Earlier (after 2 minutes) when the tool's files changed or a reset time passed.
 - Failures: `Retry-After` is honoured for HTTP 429; otherwise exponential backoff, capped at one hour. One poll in flight per provider.
+
+Numeric/HTTP-date Retry-After minimums start at response receipt and are never shortened.
+Up to three abandoned online and three local workers/provider remain accounted across
+reconfiguration; sequence sets consume completion once. Caps report errors, not absence.
+The shell coalesces reconfiguration in one background worker. `collect_once` supervises
+detection/local/online work with a 60-second wait deadline; stuck OS calls retain their slots.
+
+Save prepares main/backup replicas, then atomically replaces the authoritative commit
+record. Recovery uses that record even if preparation/rollback fails. Normal quit flushes
+dragged position after serialized form saves. Editing only `settings.json` after a commit
+record exists does not change committed state. Use Settings or deliberately migrate the
+record; do not delete it as a repair.
 
 ## The provider contract
 

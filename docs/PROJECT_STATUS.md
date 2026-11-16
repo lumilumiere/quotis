@@ -1,5 +1,47 @@
 # Quotis 2.0 project status
 
+## Codex-only hardening update, 2026-11-16
+
+Current source/test commit: `a99290e37365b09df1435712a5d6afa7d5df91d9` on `quotis-2.0`.
+It includes the reviewed immediate-movement repair and isolated parallel test folders.
+Original `fe4c1ef` and documentation baseline `f435ec1` preserved in Git. No main merge,
+force-push, tag or public release. No Claude invoked. The former unreviewed-code blocker
+is closed by [0005](reviews/0005-codex-release-hardening.md) and the
+[fresh-context Codex challenge](reviews/0005-fresh-context-challenge.md).
+
+Repairs cover transactional settings recovery, conservative corrupt-file defaults,
+normal-exit drag persistence, duplicate completion accounting, capped local/online work,
+persistent source errors, unknown telemetry, whole-walk/record budgets, file identity,
+live collector deadlines and Retry-After dates/timing. Partial counts are qualified in
+JSON, text CLI and the overlay. Cache-only diagnosis no longer probes logins.
+
+Local maintained suites: **130 Rust** (78 core, 32 engine, 14 CLI, 6 shell), **18 JS**,
+zero failures. Fresh-context review challenged the first repair commit, found five further
+issues and independently checked their repairs. It is another Codex context, not a different
+implementation/model-family review. Cross-platform CI and final artifact evidence are in
+[RELEASE_READINESS_FINAL.md](RELEASE_READINESS_FINAL.md).
+
+**Public release remains FAIL.** Real accounts were not authorized; all nine providers are
+fixture-tested/live-unverified. Native macOS/Linux UI, clean-machine install/uninstall,
+upgrade, signing and complete Windows interactive/monitor validation remain UNVERIFIED.
+WebView debugging attempts failed with ECONNREFUSED, so no successful new click-through or
+renderer screenshots are claimed. A source/test/CI PASS does not override these gaps.
+Final scoped runtime checks passed startup, fixture collection, normal exit and mode
+persistence in all three modes, plus immediate move persistence in Island/Panel. This
+does not certify visual appearance or manual dragging. CI run `43821955837` is all green.
+
+The ignored `commercial/` workspace exists and was prepared for **FREE ($0)** distribution.
+Its separate local Git commit is `718f848`; ZIP is text-only with ten files and no installer.
+Four deterministic offline scenario groups pass; marketplace delivery is UNVERIFIED.
+[Listing copy and disclosures](AGENSI_FREE_LISTING.md) do not promise a released desktop.
+No payout setup is needed for FREE under the checked Agensi rules. Nothing submitted.
+
+The sections below preserve the **pre-hardening status** for historical context. Their old
+test totals, unreviewed-code status, price assumptions and next-action text are superseded
+by this update and the final readiness report.
+
+---
+
 Last updated 2026-11-16. Nothing is running in the background: no agents, no workers, no app.
 
 ## Milestone

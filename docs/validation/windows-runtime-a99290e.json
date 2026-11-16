@@ -1,0 +1,239 @@
+{
+  "timestamp": "2026-11-16T07:18:50.5515998Z",
+  "sha256": "E98B67BB581DC2C6C58114662EA7E93222459630E43860EEAEB6B45D58610142",
+  "artifactRoot": "%TEMP%/quotis-hardening-56ecb678-dfd8-4ade-ae34-b0b1a5050324/QUOTIS_DATA_DIR/runtime-evidence",
+  "executable": "target/release/quotis.exe",
+  "runs": [
+    {
+      "mode": "island",
+      "startupToSnapshotMs": 3238,
+      "fixtureTokens": 42,
+      "checks": [
+        "startup",
+        "fixture snapshot",
+        "normal shutdown and persistence"
+      ],
+      "idle": {
+        "seconds": 60.3923751,
+        "workingSetMB": 341.76171875,
+        "processes": [
+          {
+            "Id": 8316,
+            "ProcessName": "msedgewebview2",
+            "CPU": 1.453125,
+            "PrivateMemorySize64": 33071104,
+            "WorkingSet64": 113905664
+          },
+          {
+            "Id": 19516,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.421875,
+            "PrivateMemorySize64": 61587456,
+            "WorkingSet64": 74915840
+          },
+          {
+            "Id": 21272,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.109375,
+            "PrivateMemorySize64": 7540736,
+            "WorkingSet64": 20418560
+          },
+          {
+            "Id": 24384,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.515625,
+            "PrivateMemorySize64": 28475392,
+            "WorkingSet64": 68108288
+          },
+          {
+            "Id": 25620,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.046875,
+            "PrivateMemorySize64": 3280896,
+            "WorkingSet64": 13565952
+          },
+          {
+            "Id": 27344,
+            "ProcessName": "msedgewebview2",
+            "CPU": 0.359375,
+            "PrivateMemorySize64": 11624448,
+            "WorkingSet64": 39542784
+          },
+          {
+            "Id": 17932,
+            "ProcessName": "quotis",
+            "CPU": 0.21875,
+            "PrivateMemorySize64": 5419008,
+            "WorkingSet64": 27906048
+          }
+        ],
+        "cpuOneCorePercent": 0.5174494288104261,
+        "privateMB": 144.00390625,
+        "cpuSeconds": 0.3125
+      },
+      "refreshCpuSeconds": 0.015625,
+      "failureSample": {
+        "cpuSeconds": 0.171875,
+        "privateMB": 144.2265625,
+        "snapshot": {
+          "schema_version": 1,
+          "generated_at": 1794813501,
+          "app_version": "2.0.0",
+          "stale_after_secs": 900,
+          "providers": [
+            {
+              "id": "claude",
+              "name": "Claude Code",
+              "vendor": "Anthropic",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "codex",
+              "name": "Codex",
+              "vendor": "OpenAI",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "copilot",
+              "name": "GitHub Copilot",
+              "vendor": "GitHub",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "cursor",
+              "name": "Cursor",
+              "vendor": "Anysphere",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "gemini",
+              "name": "Gemini CLI",
+              "vendor": "Google",
+              "status": "connected",
+              "error": {
+                "kind": "unavailable",
+                "message": "can't read local data"
+              },
+              "observed_at": 1794813498,
+              "refreshing": false,
+              "metrics": [
+                {
+                  "id": "tokens_5h",
+                  "label": "5h",
+                  "category": "local_usage",
+                  "unit": "tokens",
+                  "window_seconds": 18000,
+                  "used": 84,
+                  "observed_at": 1794813498,
+                  "source": "local_log",
+                  "freshness": "fresh"
+                },
+                {
+                  "id": "tokens_24h",
+                  "label": "24h",
+                  "category": "local_usage",
+                  "unit": "tokens",
+                  "window_seconds": 86400,
+                  "used": 84,
+                  "observed_at": 1794813498,
+                  "source": "local_log",
+                  "freshness": "fresh"
+                }
+              ],
+              "notes": []
+            },
+            {
+              "id": "qwen",
+              "name": "Qwen Code",
+              "vendor": "Alibaba",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "opencode",
+              "name": "opencode",
+              "vendor": "opencode",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "openrouter",
+              "name": "OpenRouter",
+              "vendor": "OpenRouter",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            },
+            {
+              "id": "deepseek",
+              "name": "DeepSeek",
+              "vendor": "DeepSeek",
+              "status": "disabled",
+              "refreshing": false,
+              "metrics": [],
+              "notes": []
+            }
+          ]
+        }
+      },
+      "exitCode": 0,
+      "position": [
+        130,
+        110
+      ]
+    },
+    {
+      "mode": "notch",
+      "startupToSnapshotMs": 3732,
+      "fixtureTokens": 42,
+      "checks": [
+        "startup",
+        "fixture snapshot",
+        "normal shutdown and persistence"
+      ],
+      "exitCode": 0,
+      "position": null
+    },
+    {
+      "mode": "panel",
+      "startupToSnapshotMs": 2338,
+      "fixtureTokens": 42,
+      "checks": [
+        "startup",
+        "fixture snapshot",
+        "normal shutdown and persistence"
+      ],
+      "exitCode": 0,
+      "position": [
+        220,
+        110
+      ]
+    }
+  ],
+  "source_commit": "a99290e37365b09df1435712a5d6afa7d5df91d9",
+  "host": {
+    "os": "Windows 11 Pro 10.0.26300",
+    "cpu": "Intel Core i5-1135G7",
+    "cores": 4,
+    "logical_processors": 8,
+    "visible_ram_kib": 16464208,
+    "display": "one WinForms screen, reported1600x900 (DPI may be virtualized)"
+  }
+}
