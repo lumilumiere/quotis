@@ -92,6 +92,7 @@ fn help_version_and_usage_errors() {
         &["export", "--format", "xml"],
         &["status", "--max-age", "soon"],
         &["status", "extra"],
+        &["providers", "--live"],
     ] {
         let o = cli(&dir, bad);
         assert_eq!(o.status.code(), Some(2), "{bad:?}");

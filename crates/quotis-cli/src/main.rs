@@ -24,7 +24,7 @@ COMMANDS:
 
 OPTIONS:
     --json           Machine-readable output (always on for snapshot and export)
-    --live           Collect now instead of reading the desktop app's snapshot
+    --live           Collect now (status, snapshot, diagnose, export); waits at most 60s for collectors
     --offline        With --live: read local files only, make no network request
     --max-age <SEC>  Treat a desktop snapshot older than this as stale (default 180)
     -h, --help       Show this help
@@ -84,6 +84,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     }
     if a.offline && !a.live {
         return Err("--offline only applies with --live".into());
+    }
+    if a.command == "providers" && a.live {
+        return Err("--live does not apply to providers; that command only discovers local sources".into());
     }
     if a.provider.is_some() && a.command != "diagnose" {
         return Err("--provider only applies to diagnose".into());
